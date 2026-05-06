@@ -31,11 +31,11 @@ La IA en Tikora cumple **dos funciones de negocio** y un **rol auxiliar**:
 
 ### 2.1 Modelos de generación
 
-| Función | Modelo por defecto | Variable de entorno |
-|---|---|---|
-| Clasificación | **Claude Haiku 4.5** (`claude-haiku-4-5-20251001`) | `ANTHROPIC_MODEL_CLASSIFICATION` |
-| Generación de respuesta | **Claude Sonnet 4.6** (`claude-sonnet-4-6`) | `ANTHROPIC_MODEL_RESPONSE` |
-| Revisión / segunda opinión (Fase 3) | Sonnet 4.6 con prompt distinto | `ANTHROPIC_MODEL_REVIEW` |
+| Función                             | Modelo por defecto                                 | Variable de entorno              |
+| ----------------------------------- | -------------------------------------------------- | -------------------------------- |
+| Clasificación                       | **Claude Haiku 4.5** (`claude-haiku-4-5-20251001`) | `ANTHROPIC_MODEL_CLASSIFICATION` |
+| Generación de respuesta             | **Claude Sonnet 4.6** (`claude-sonnet-4-6`)        | `ANTHROPIC_MODEL_RESPONSE`       |
+| Revisión / segunda opinión (Fase 3) | Sonnet 4.6 con prompt distinto                     | `ANTHROPIC_MODEL_REVIEW`         |
 
 **Por qué Haiku para clasificar:** la tarea de clasificación es de comprensión + selección dentro de un set acotado (áreas, prioridades). Haiku 4.5 es notablemente rápido (latencia típica < 1 s), barato y suficientemente preciso. Procesar la clasificación con un modelo más caro no aporta calidad significativa pero multiplica el costo por un volumen alto de tickets.
 
@@ -45,8 +45,8 @@ La IA en Tikora cumple **dos funciones de negocio** y un **rol auxiliar**:
 
 ### 2.2 Modelo de embeddings
 
-| Componente | Modelo | Configuración |
-|---|---|---|
+| Componente                              | Modelo                             | Configuración          |
+| --------------------------------------- | ---------------------------------- | ---------------------- |
 | Embeddings de chunks de KB y de tickets | **`Xenova/multilingual-e5-small`** | `EMBEDDING_MODEL_NAME` |
 
 **Características:**
@@ -124,13 +124,14 @@ interface AiClientService {
 }
 
 interface GenerateParams {
-  model: string;                    // p.ej. process.env.ANTHROPIC_MODEL_CLASSIFICATION
+  model: string; // p.ej. process.env.ANTHROPIC_MODEL_CLASSIFICATION
   systemPrompt: string;
   userMessage: string;
   maxTokens?: number;
   temperature?: number;
-  cacheSystemPrompt?: boolean;      // activa prompt caching del system
-  metadata?: {                      // para observabilidad
+  cacheSystemPrompt?: boolean; // activa prompt caching del system
+  metadata?: {
+    // para observabilidad
     ticketId?: string;
     promptVersion: string;
     purpose: 'classification' | 'auto-response' | 'review';
@@ -138,23 +139,23 @@ interface GenerateParams {
 }
 
 interface GenerateStructuredParams<T> extends GenerateParams {
-  outputSchema: z.ZodType<T>;       // schema Zod desde @tikora/core
-  maxValidationRetries?: number;    // default 2
+  outputSchema: z.ZodType<T>; // schema Zod desde @tikora/core
+  maxValidationRetries?: number; // default 2
 }
 ```
 
 ### 4.3 Configuración
 
-| Parámetro | Default | Variable |
-|---|---|---|
-| Timeout de request | 30 s | `ANTHROPIC_TIMEOUT_MS` |
-| Reintentos por error transitorio (5xx, rate limit) | 3 | `ANTHROPIC_MAX_RETRIES` |
-| Backoff inicial | 1 s | `ANTHROPIC_RETRY_BACKOFF_MS` |
-| Backoff factor | 2 | (constante) |
-| Máximo de tokens por respuesta (clasificación) | 1024 | `ANTHROPIC_MAX_TOKENS_CLASSIFICATION` |
-| Máximo de tokens por respuesta (auto-respuesta) | 2048 | `ANTHROPIC_MAX_TOKENS_RESPONSE` |
-| Temperatura clasificación | 0.0 (determinista) | `ANTHROPIC_TEMP_CLASSIFICATION` |
-| Temperatura auto-respuesta | 0.3 (poca creatividad) | `ANTHROPIC_TEMP_RESPONSE` |
+| Parámetro                                          | Default                | Variable                              |
+| -------------------------------------------------- | ---------------------- | ------------------------------------- |
+| Timeout de request                                 | 30 s                   | `ANTHROPIC_TIMEOUT_MS`                |
+| Reintentos por error transitorio (5xx, rate limit) | 3                      | `ANTHROPIC_MAX_RETRIES`               |
+| Backoff inicial                                    | 1 s                    | `ANTHROPIC_RETRY_BACKOFF_MS`          |
+| Backoff factor                                     | 2                      | (constante)                           |
+| Máximo de tokens por respuesta (clasificación)     | 1024                   | `ANTHROPIC_MAX_TOKENS_CLASSIFICATION` |
+| Máximo de tokens por respuesta (auto-respuesta)    | 2048                   | `ANTHROPIC_MAX_TOKENS_RESPONSE`       |
+| Temperatura clasificación                          | 0.0 (determinista)     | `ANTHROPIC_TEMP_CLASSIFICATION`       |
+| Temperatura auto-respuesta                         | 0.3 (poca creatividad) | `ANTHROPIC_TEMP_RESPONSE`             |
 
 ### 4.4 Estrategia de retries
 
@@ -204,9 +205,9 @@ ClassificationProcessor.process(job)
 
 ### 5.2 System prompt (versión inicial)
 
-Ubicación: `apps/tikora-back/src/classification/templates/classification-prompt.v1.md`.
+Ubicación: `apps/back/src/classification/templates/classification-prompt.v1.md`.
 
-```markdown
+````markdown
 Sos un sistema de clasificación de tickets internos de soporte de la empresa.
 
 # Tu tarea
@@ -250,7 +251,9 @@ Recibís el asunto y el cuerpo de un ticket creado por un empleado. Devolvés un
   "tags": ["string", "..."]
 }
 ```
-```
+````
+
+````
 
 ### 5.3 Schema Zod (en `@tikora/core`)
 
@@ -266,7 +269,7 @@ export const ClassificationOutputSchema = z.object({
 });
 
 export type ClassificationOutput = z.infer<typeof ClassificationOutputSchema>;
-```
+````
 
 ### 5.4 Validación de la salida
 
@@ -287,15 +290,15 @@ Si `confianza < UMBRAL_CONFIANZA_CLASIFICACION` (default `0.7`):
 
 ### 5.6 Manejo de errores y fallback
 
-| Error | Acción |
-|---|---|
-| Timeout de la API | Reintentar (backoff exponencial) hasta `ANTHROPIC_MAX_RETRIES`. Si se agota, marcar `requiere_revision_clasificacion` y notificar al admin. |
-| Rate limit (429) | Reintentar con backoff respetando el header `Retry-After`. |
-| 5xx persistente | Marcar `requiere_revision_clasificacion`. Notificar al admin. |
-| API key inválida (401) | No reintentar. Alarma crítica. Notificar al admin. |
-| JSON inválido tras reintentos | Marcar `requiere_revision_clasificacion`. |
-| `area` no existe en el tenant | Tratar como confianza 0 → `requiere_revision_clasificacion`. |
-| Texto del ticket vacío o muy corto (< 10 chars) | No llamar a la IA. Marcar `requiere_revision_clasificacion` con motivo `contenido_insuficiente`. |
+| Error                                           | Acción                                                                                                                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Timeout de la API                               | Reintentar (backoff exponencial) hasta `ANTHROPIC_MAX_RETRIES`. Si se agota, marcar `requiere_revision_clasificacion` y notificar al admin. |
+| Rate limit (429)                                | Reintentar con backoff respetando el header `Retry-After`.                                                                                  |
+| 5xx persistente                                 | Marcar `requiere_revision_clasificacion`. Notificar al admin.                                                                               |
+| API key inválida (401)                          | No reintentar. Alarma crítica. Notificar al admin.                                                                                          |
+| JSON inválido tras reintentos                   | Marcar `requiere_revision_clasificacion`.                                                                                                   |
+| `area` no existe en el tenant                   | Tratar como confianza 0 → `requiere_revision_clasificacion`.                                                                                |
+| Texto del ticket vacío o muy corto (< 10 chars) | No llamar a la IA. Marcar `requiere_revision_clasificacion` con motivo `contenido_insuficiente`.                                            |
 
 ### 5.7 Versionado de prompts
 
@@ -423,21 +426,18 @@ const pipeline = [
       filter: {
         tenantId: { $eq: tenantId },
         active: { $eq: true },
-        $or: [
-          { scope: 'global' },
-          { scope: 'area', areaIds: { $in: [ticketAreaId] } }
-        ]
-      }
-    }
+        $or: [{ scope: 'global' }, { scope: 'area', areaIds: { $in: [ticketAreaId] } }],
+      },
+    },
   },
   {
     $project: {
       content: 1,
       documentId: 1,
       position: 1,
-      score: { $meta: 'vectorSearchScore' }
-    }
-  }
+      score: { $meta: 'vectorSearchScore' },
+    },
+  },
 ];
 ```
 
@@ -506,7 +506,7 @@ Fase 3: si confianza_respuesta ≥ UMBRAL_AUTO_AUTONOMA → enviar correo y cerr
 
 ### 7.3 System prompt (versión inicial)
 
-Ubicación: `apps/tikora-back/src/auto-response/templates/response-prompt.v1.md`.
+Ubicación: `apps/back/src/auto-response/templates/response-prompt.v1.md`.
 
 ```markdown
 Sos un asistente de soporte interno de la empresa. Respondés tickets de empleados con tono profesional, cálido, claro y conciso, siempre en español.
@@ -528,8 +528,8 @@ Te llega un ticket de un empleado y un conjunto de fragmentos relevantes de la b
 # Estructura del input
 
 El usuario te va a pasar un mensaje con esta forma:
-
 ```
+
 TICKET
 Asunto: ...
 Cuerpo: ...
@@ -539,7 +539,8 @@ FRAGMENTOS DE KB (ordenados por relevancia)
 <contenido del fragmento>
 
 [2] ...
-```
+
+````
 
 # Schema de salida
 
@@ -555,7 +556,7 @@ Devolvé EXCLUSIVAMENTE un JSON con esta forma, sin texto adicional:
     { "chunkIndex": 2, "usedFor": "detalle del paso 3" }
   ]
 }
-```
+````
 
 Si los fragmentos no permiten responder con confianza:
 
@@ -566,7 +567,8 @@ Si los fragmentos no permiten responder con confianza:
   "confianza": 0.3
 }
 ```
-```
+
+````
 
 ### 7.4 Schema Zod (en `@tikora/core`)
 
@@ -593,7 +595,7 @@ export const AutoResponseOutputSchema = z.discriminatedUnion('respondable', [
 ]);
 
 export type AutoResponseOutput = z.infer<typeof AutoResponseOutputSchema>;
-```
+````
 
 ### 7.5 Inyección del contexto
 
@@ -662,7 +664,7 @@ Todo prompt sigue una estructura mental:
 
 ### 8.2 Almacenamiento
 
-- Cada prompt vive como archivo Markdown en `apps/tikora-back/src/{module}/templates/`.
+- Cada prompt vive como archivo Markdown en `apps/back/src/{module}/templates/`.
 - Nomenclatura: `{purpose}-prompt.v{N}.md`. Ej: `classification-prompt.v1.md`.
 - El template se lee al arrancar el worker y se cachea en memoria. No se relee por cada llamada.
 
@@ -705,13 +707,13 @@ Anthropic ofrece prompt caching para reducir costo y latencia cuando un mismo pr
 
 ### 9.1 Estrategia de caching en Tikora
 
-| Componente | Cacheable | Por qué |
-|---|---|---|
-| System prompt de clasificación | ✅ | Es idéntico en cada llamada (lo único variable es el `{{areas_json}}` por tenant). |
-| `{{areas_json}}` por tenant | ✅ | Cambia raramente (el admin agrega/edita áreas). Se cachea junto con el system. |
-| Cuerpo del ticket | ❌ | Único por ticket. |
-| System prompt de auto-respuesta | ✅ | Estable. |
-| Chunks de KB en el user message | ❌ | Cambian por ticket. |
+| Componente                      | Cacheable | Por qué                                                                            |
+| ------------------------------- | --------- | ---------------------------------------------------------------------------------- |
+| System prompt de clasificación  | ✅        | Es idéntico en cada llamada (lo único variable es el `{{areas_json}}` por tenant). |
+| `{{areas_json}}` por tenant     | ✅        | Cambia raramente (el admin agrega/edita áreas). Se cachea junto con el system.     |
+| Cuerpo del ticket               | ❌        | Único por ticket.                                                                  |
+| System prompt de auto-respuesta | ✅        | Estable.                                                                           |
+| Chunks de KB en el user message | ❌        | Cambian por ticket.                                                                |
 
 **Implementación:** se marca el bloque cacheable con `cache_control: { type: 'ephemeral' }` en el SDK de Anthropic. El TTL por defecto es de 5 minutos; si el volumen de tickets justifica TTL extendido (1 h), se evalúa luego.
 
@@ -729,16 +731,16 @@ Con un volumen medio de tickets de un tenant activo, el system + áreas represen
 
 ### 10.1 Tipología de errores
 
-| Tipo | Ejemplo | Estrategia |
-|---|---|---|
-| Transitorio de red | timeout, ECONNRESET | Reintentar con backoff. |
-| Transitorio del proveedor | 5xx, 429 | Reintentar respetando `Retry-After`. |
-| De autenticación | 401, 403 | No reintentar. Alarma crítica. Escalar a admin. |
-| De cuota | 402, 429 persistente | No reintentar. Alarma. Pausar la cola hasta que el admin reactive. |
-| De validación de input | 400 con motivo `prompt too long` | No reintentar. Loguear con contenido truncado. Marcar el ticket para revisión humana. |
-| De salida estructurada | JSON inválido o no cumple schema Zod | Reintentar con prompt correctivo. |
-| De contenido (refusal) | el modelo rechaza generar | Marcar para revisión humana. Loguear el ticket completo. |
-| De jailbreak detectado | (ver §11) | Marcar para revisión humana. Alertar admin. |
+| Tipo                      | Ejemplo                              | Estrategia                                                                            |
+| ------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------- |
+| Transitorio de red        | timeout, ECONNRESET                  | Reintentar con backoff.                                                               |
+| Transitorio del proveedor | 5xx, 429                             | Reintentar respetando `Retry-After`.                                                  |
+| De autenticación          | 401, 403                             | No reintentar. Alarma crítica. Escalar a admin.                                       |
+| De cuota                  | 402, 429 persistente                 | No reintentar. Alarma. Pausar la cola hasta que el admin reactive.                    |
+| De validación de input    | 400 con motivo `prompt too long`     | No reintentar. Loguear con contenido truncado. Marcar el ticket para revisión humana. |
+| De salida estructurada    | JSON inválido o no cumple schema Zod | Reintentar con prompt correctivo.                                                     |
+| De contenido (refusal)    | el modelo rechaza generar            | Marcar para revisión humana. Loguear el ticket completo.                              |
+| De jailbreak detectado    | (ver §11)                            | Marcar para revisión humana. Alertar admin.                                           |
 
 ### 10.2 Reintento con prompt correctivo
 
@@ -859,23 +861,23 @@ Los costos relevantes son:
 
 ### 13.2 Estimación por ticket (Fase 1, solo clasificación)
 
-| Componente | Tokens aprox. | Notas |
-|---|---|---|
-| System prompt (cacheado tras 1ª vez) | ~800 | Cache reduce ~90 % del precio tras la primera llamada del TTL |
-| Áreas del tenant (cacheadas) | ~300 | Idem |
-| Cuerpo del ticket (no cacheable) | ~200 | Variable según tamaño real |
-| Output JSON | ~100 | Schema acotado |
+| Componente                           | Tokens aprox. | Notas                                                         |
+| ------------------------------------ | ------------- | ------------------------------------------------------------- |
+| System prompt (cacheado tras 1ª vez) | ~800          | Cache reduce ~90 % del precio tras la primera llamada del TTL |
+| Áreas del tenant (cacheadas)         | ~300          | Idem                                                          |
+| Cuerpo del ticket (no cacheable)     | ~200          | Variable según tamaño real                                    |
+| Output JSON                          | ~100          | Schema acotado                                                |
 
 **Costo aproximado por clasificación con Haiku 4.5 + caching activo:** una fracción de centavo. Para 10.000 tickets/mes, estamos en el orden de unos pocos dólares.
 
 ### 13.3 Estimación por ticket (Fase 2/3, auto-respuesta)
 
-| Componente | Tokens aprox. |
-|---|---|
-| System prompt de respuesta (cacheado) | ~600 |
-| Cuerpo del ticket | ~200 |
-| Chunks de KB inyectados (5 × ~700) | ~3500 |
-| Output (respuesta + sources) | ~400 |
+| Componente                            | Tokens aprox. |
+| ------------------------------------- | ------------- |
+| System prompt de respuesta (cacheado) | ~600          |
+| Cuerpo del ticket                     | ~200          |
+| Chunks de KB inyectados (5 × ~700)    | ~3500         |
+| Output (respuesta + sources)          | ~400          |
 
 **Costo aproximado por auto-respuesta con Sonnet 4.6:** del orden de centavos por ticket. La meta es que el porcentaje de tickets auto-respondidos sea suficiente para que el ahorro de tiempo de agente compense varias órdenes de magnitud el costo.
 

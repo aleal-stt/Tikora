@@ -67,15 +67,15 @@ Esto sucede en background, una vez por ticket candidato a auto-respuesta.
 
 **Identificador completo:** `Xenova/multilingual-e5-small` (versión empacada para Transformers.js).
 
-| Característica | Valor |
-|---|---|
-| Dimensiones del vector | 384 |
-| Tamaño en disco | ~120 MB |
-| Idiomas soportados | 100+ (incluye español, inglés, portugués) |
-| Máximo de tokens por input | 512 |
-| Tipo de pooling | Mean pooling |
-| Vectores normalizados | Sí (longitud 1) |
-| Licencia | MIT |
+| Característica             | Valor                                     |
+| -------------------------- | ----------------------------------------- |
+| Dimensiones del vector     | 384                                       |
+| Tamaño en disco            | ~120 MB                                   |
+| Idiomas soportados         | 100+ (incluye español, inglés, portugués) |
+| Máximo de tokens por input | 512                                       |
+| Tipo de pooling            | Mean pooling                              |
+| Vectores normalizados      | Sí (longitud 1)                           |
+| Licencia                   | MIT                                       |
 
 **Por qué este modelo:**
 
@@ -229,7 +229,7 @@ class TransformersJsEmbeddingProvider implements EmbeddingProvider {
     this.extractor = await pipeline(
       'feature-extraction',
       process.env.EMBEDDING_MODEL_NAME, // 'Xenova/multilingual-e5-small'
-      { quantized: true }
+      { quantized: true },
     );
   }
 
@@ -272,12 +272,12 @@ El chunking parte un documento largo en fragmentos más chicos, cada uno con su 
 
 ### 7.2 Estrategia de Tikora
 
-| Parámetro | Valor por defecto |
-|---|---|
-| Tamaño objetivo | 500-800 tokens por chunk |
-| Mínimo aceptable | 200 tokens |
-| Máximo absoluto | 1000 tokens |
-| Overlap entre chunks consecutivos | 100 tokens |
+| Parámetro                         | Valor por defecto        |
+| --------------------------------- | ------------------------ |
+| Tamaño objetivo                   | 500-800 tokens por chunk |
+| Mínimo aceptable                  | 200 tokens               |
+| Máximo absoluto                   | 1000 tokens              |
+| Overlap entre chunks consecutivos | 100 tokens               |
 
 ### 7.3 Respeto de límites semánticos
 
@@ -357,16 +357,16 @@ Los embeddings se guardan en la colección `kb_chunks` del mismo cluster de Mong
 ```typescript
 interface KbChunk {
   _id: ObjectId;
-  tenantId: ObjectId;          // filtro multi-tenant obligatorio
-  documentId: ObjectId;        // referencia al KbDocument
-  documentVersion: number;     // versión del documento al que pertenece
-  position: number;            // orden del chunk dentro del documento (0..N)
-  content: string;             // texto del chunk (sin el prefijo "passage:")
-  embedding: number[];         // 384 floats
-  scope: 'global' | 'area';    // copiado del documento padre
-  areaIds: ObjectId[];         // copiado del documento padre (vacío si scope=global)
-  active: boolean;             // true solo para la versión activa del documento
-  tokensCount: number;         // tamaño del chunk en tokens
+  tenantId: ObjectId; // filtro multi-tenant obligatorio
+  documentId: ObjectId; // referencia al KbDocument
+  documentVersion: number; // versión del documento al que pertenece
+  position: number; // orden del chunk dentro del documento (0..N)
+  content: string; // texto del chunk (sin el prefijo "passage:")
+  embedding: number[]; // 384 floats
+  scope: 'global' | 'area'; // copiado del documento padre
+  areaIds: ObjectId[]; // copiado del documento padre (vacío si scope=global)
+  active: boolean; // true solo para la versión activa del documento
+  tokensCount: number; // tamaño del chunk en tokens
   createdAt: Date;
 }
 ```
@@ -412,12 +412,12 @@ Configuración del índice (definido en Atlas o vía CLI):
 
 ### 8.4 Por qué Atlas Vector Search y no otra solución
 
-| Opción | Pros | Contras |
-|---|---|---|
-| **Atlas Vector Search** (elegida) | Mismo cluster que la BD, transacciones consistentes con el resto de la data, sin servicio adicional | Atado a Atlas (no aplica si se decide self-hosting de Mongo) |
-| Pinecone / Weaviate / Qdrant | Especializados, buena performance a gran escala | Servicio externo de pago, datos viajan fuera, dependencia adicional |
-| pgvector (Postgres) | Solid choice si la BD principal fuera Postgres | Stack diferente al elegido |
-| FAISS / Annoy local | Gratis | Sin durabilidad, hay que persistir aparte, no escala horizontalmente |
+| Opción                            | Pros                                                                                                | Contras                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **Atlas Vector Search** (elegida) | Mismo cluster que la BD, transacciones consistentes con el resto de la data, sin servicio adicional | Atado a Atlas (no aplica si se decide self-hosting de Mongo)         |
+| Pinecone / Weaviate / Qdrant      | Especializados, buena performance a gran escala                                                     | Servicio externo de pago, datos viajan fuera, dependencia adicional  |
+| pgvector (Postgres)               | Solid choice si la BD principal fuera Postgres                                                      | Stack diferente al elegido                                           |
+| FAISS / Annoy local               | Gratis                                                                                              | Sin durabilidad, hay que persistir aparte, no escala horizontalmente |
 
 Atlas Vector Search es la opción que mantiene el principio de "una sola BD para todo el dominio", reduce piezas operativas y evita costos adicionales mientras la KB sea de tamaño razonable.
 
@@ -436,17 +436,14 @@ const pipeline = [
       index: 'kb_chunks_vector',
       path: 'embedding',
       queryVector,
-      numCandidates: 100,   // pre-selección amplia
-      limit: 5,             // resultado final
+      numCandidates: 100, // pre-selección amplia
+      limit: 5, // resultado final
       filter: {
         tenantId: { $eq: ticket.tenantId },
         active: { $eq: true },
-        $or: [
-          { scope: 'global' },
-          { scope: 'area', areaIds: { $in: [ticket.areaId] } }
-        ]
-      }
-    }
+        $or: [{ scope: 'global' }, { scope: 'area', areaIds: { $in: [ticket.areaId] } }],
+      },
+    },
   },
   {
     $project: {
@@ -455,9 +452,9 @@ const pipeline = [
       documentVersion: 1,
       position: 1,
       areaIds: 1,
-      score: { $meta: 'vectorSearchScore' }
-    }
-  }
+      score: { $meta: 'vectorSearchScore' },
+    },
+  },
 ];
 
 const results = await db.collection('kb_chunks').aggregate(pipeline).toArray();
@@ -476,6 +473,7 @@ const results = await db.collection('kb_chunks').aggregate(pipeline).toArray();
 **Toda búsqueda incluye `active: true`.** Sin esto, los chunks de versiones viejas siguen apareciendo y la auto-respuesta cita información obsoleta.
 
 **Filtro de scope/área:** un chunk se considera relevante si:
+
 - Su `scope` es `global` (aplica a cualquier ticket del tenant), **o**
 - Su `scope` es `area` y el área del ticket está en sus `areaIds`.
 
@@ -483,13 +481,13 @@ const results = await db.collection('kb_chunks').aggregate(pipeline).toArray();
 
 `$vectorSearch` devuelve un score normalizado entre 0 y 1 (con `similarity: cosine`):
 
-| Score | Interpretación cualitativa |
-|---|---|
-| > 0.90 | Match muy fuerte — el chunk responde directamente. |
-| 0.80 - 0.90 | Match bueno — el chunk es claramente relevante. |
-| 0.75 - 0.80 | Match aceptable — relacionado pero no idéntico. |
+| Score       | Interpretación cualitativa                            |
+| ----------- | ----------------------------------------------------- |
+| > 0.90      | Match muy fuerte — el chunk responde directamente.    |
+| 0.80 - 0.90 | Match bueno — el chunk es claramente relevante.       |
+| 0.75 - 0.80 | Match aceptable — relacionado pero no idéntico.       |
 | 0.65 - 0.75 | Match débil — tiene similitud pero puede no ser útil. |
-| < 0.65 | Match irrelevante — descartar. |
+| < 0.65      | Match irrelevante — descartar.                        |
 
 **Política de Tikora:**
 
@@ -521,7 +519,7 @@ El modelo se carga **una sola vez por proceso (worker)** y se reutiliza para tod
       provide: 'EMBEDDING_PROVIDER',
       useFactory: async () => {
         const provider = new TransformersJsEmbeddingProvider();
-        await provider.init();   // descarga + carga el modelo
+        await provider.init(); // descarga + carga el modelo
         return provider;
       },
     },
@@ -565,13 +563,13 @@ console.log('Embedding worker ready');
 
 En un servidor con CPU x86_64 moderno (4 cores, sin GPU):
 
-| Operación | Latencia |
-|---|---|
-| Embedding de un texto corto (< 100 tokens) | 30-60 ms |
-| Embedding de un texto medio (300 tokens) | 60-120 ms |
+| Operación                                        | Latencia   |
+| ------------------------------------------------ | ---------- |
+| Embedding de un texto corto (< 100 tokens)       | 30-60 ms   |
+| Embedding de un texto medio (300 tokens)         | 60-120 ms  |
 | Embedding de un texto largo (500 tokens, máximo) | 100-150 ms |
-| Carga inicial del modelo (cache miss) | 10-20 s |
-| Carga inicial del modelo (cache hit) | 1-3 s |
+| Carga inicial del modelo (cache miss)            | 10-20 s    |
+| Carga inicial del modelo (cache hit)             | 1-3 s      |
 
 ### 11.2 Throughput
 
@@ -619,7 +617,7 @@ Con un worker activo, el uso total estable es ~250-300 MB de RAM dedicados a emb
 ### 12.2 Comando de re-indexación masiva
 
 ```bash
-npx nx run tikora-back:reindex-kb -- --tenantId <id> [--dry-run]
+npx nx run back:reindex-kb -- --tenantId <id> [--dry-run]
 ```
 
 **Comportamiento:**
@@ -653,11 +651,13 @@ Este proceso debe documentarse en un runbook antes de ejecutarse en producción.
 ### 13.1 Modelo no carga al inicio
 
 **Causas posibles:**
+
 - Sin conexión a internet en el primer arranque (no puede descargar de HF Hub).
 - Cache corrupto.
 - Versión del modelo no existe.
 
 **Estrategia:**
+
 - El worker no pasa el healthcheck. No empieza a procesar jobs.
 - Loguear el error con el detalle de la causa.
 - Si está en producción y la cache estaba pre-poblada en el build, este error indica un problema serio de infraestructura — alarma crítica.
@@ -665,11 +665,13 @@ Este proceso debe documentarse en un runbook antes de ejecutarse en producción.
 ### 13.2 Embedding falla
 
 **Causas posibles:**
+
 - Texto vacío o inválido.
 - OOM transitorio.
 - Bug en una versión de Transformers.js.
 
 **Estrategia:**
+
 - Try/catch alrededor de cada `extractor()`.
 - Si falla, reintentar 1 vez.
 - Si vuelve a fallar:
@@ -679,11 +681,13 @@ Este proceso debe documentarse en un runbook antes de ejecutarse en producción.
 ### 13.3 Atlas Vector Search no responde
 
 **Causas posibles:**
+
 - Cluster en mantenimiento.
 - Índice no creado o no listo (puede tomar minutos en construirse tras un cambio de definición).
 - Filtro que viola la definición del índice.
 
 **Estrategia:**
+
 - Reintentos de Mongoose con backoff.
 - Si persiste: alarma crítica. La auto-respuesta se desactiva temporalmente (los tickets se escalan al área igual que si ningún chunk superara el umbral). El servicio sigue operativo.
 
@@ -714,13 +718,13 @@ Cron semanal (`MaintenanceService.verifyKbConsistency`):
 
 ### 14.3 Métricas a monitorear
 
-| Métrica | Por qué importa |
-|---|---|
-| Latencia de generación de embeddings (P50, P95) | Detecta degradación de performance del worker |
-| Tasa de errores en `embedPassage`/`embedQuery` | Detecta problemas con el modelo |
-| Tasa de búsquedas con score < umbral | Si sube, indica que la KB no está cubriendo bien los tickets |
-| Tamaño de la colección `kb_chunks` | Para planificar capacidad y costos de Atlas |
-| Tiempo desde la última indexación por tenant | Detectar tenants que dejaron de mantener la KB |
+| Métrica                                         | Por qué importa                                              |
+| ----------------------------------------------- | ------------------------------------------------------------ |
+| Latencia de generación de embeddings (P50, P95) | Detecta degradación de performance del worker                |
+| Tasa de errores en `embedPassage`/`embedQuery`  | Detecta problemas con el modelo                              |
+| Tasa de búsquedas con score < umbral            | Si sube, indica que la KB no está cubriendo bien los tickets |
+| Tamaño de la colección `kb_chunks`              | Para planificar capacidad y costos de Atlas                  |
+| Tiempo desde la última indexación por tenant    | Detectar tenants que dejaron de mantener la KB               |
 
 ### 14.4 Backups
 
