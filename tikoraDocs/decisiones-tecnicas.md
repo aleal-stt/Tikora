@@ -377,3 +377,193 @@ src/{feature}/
 - Los system prompts de IA viven como archivos `.md` en `templates/`, nunca inline en el código.
 - Los tipos auxiliares internos del módulo (interfaces, types) viven al lado del archivo que los usa, salvo que sean compartidos por varios archivos del mismo módulo, en cuyo caso se mueven a una carpeta `interfaces/`.
 - Cada módulo nuevo se registra explícitamente en `app.module.ts`.
+
+---
+
+## 17. Stack del frontend
+
+**Decisión:** Frontend como **SPA** con **Vite + React 18 + TypeScript**, sirviendo estáticos. El backend solo expone API REST en `/api/v1`. La aplicación vive como app dentro del monorepo Nx en `apps/front/`.
+
+**Opciones evaluadas:**
+
+| Opción | Pros | Contras |
+|---|---|---|
+| Vite + React SPA (elegida) | Setup simple, HMR rápido, build a estáticos servibles desde cualquier CDN, sin servidor de Node en runtime | Sin SSR (irrelevante para una app interna autenticada) |
+| Next.js (App Router con SSR) | SSR/streaming, convenciones fuertes, server actions | Costo operativo de un servidor Node en runtime, complejidad innecesaria para un panel autenticado sin SEO |
+| Remix | Loaders por ruta, buena DX | Mismo costo operativo que Next, ecosistema más chico |
+
+**Por qué se eligió:** Tikora es una plataforma B2B autenticada sin necesidad de SEO ni de pre-rendering — todas las rutas son privadas tras login. Vite SPA mantiene el deploy simple (HTML+JS+CSS estáticos), evita correr un proceso de Node solo para servir HTML, y reduce el costo operativo a cero. La velocidad de feedback en desarrollo (HMR sub-segundo) acelera la construcción de las múltiples vistas previstas.
+
+---
+
+## 18. Identidad visual y paleta
+
+**Decisión:**
+
+- **Logo (isotipo):** cuadrado con texto "TIK" sobre gradiente azul→sky (`from-blue-600 to-sky-500`), sin wordmark al lado.
+- **Primarios:** `blue-600` / `blue-700` / `blue-50` (acentos, hover, fondos suaves).
+- **Accent secundario:** `sky-500` / `sky-400`.
+- **Neutros:** familia **slate** (`slate-50` … `slate-900`).
+- **Estados:** `red-*`, `amber-*`, `emerald-*`, `slate-*`.
+- **Tipografía:** Inter (self-hosted vía `@fontsource-variable/inter`).
+- **Densidad:** compacta (filas de tabla 40-44 px, padding moderado).
+- **Modo oscuro:** no en MVP. Las clases se escriben de forma compatible con `dark:` para facilitar la migración futura.
+- **Tono de la interfaz:** español neutro empresarial.
+
+**Opciones evaluadas:**
+
+| Opción | Pros | Contras |
+|---|---|---|
+| Azules + slate (elegida) | Lectura corporativa seria, alto contraste, accesible, cubre toda la paleta sin saturar | Menos vibrante que un esquema multicolor |
+| Indigo/purple/pink con gradientes vivos | Más visualmente atractivo en marketing | Demasiado expresivo para una plataforma operativa de uso diario; fatiga visual al mirar bandejas durante horas |
+| Verde corporativo / monocromo | Distintivo | Menos versátil para diferenciar estados y acciones |
+
+**Por qué se eligió:** El usuario primario de Tikora es un agente que mira tickets durante toda la jornada. La paleta tiene que ser **calma, legible y no fatigante**, dejando que los colores con peso (semáforo SLA, badges de prioridad, alertas) sobresalgan. Azul + slate es el lenguaje visual más adoptado en plataformas B2B de productividad por estas mismas razones. Slate sobre gray neutro porque tiene un sutil tinte frío que comunica seriedad sin volverse aséptico.
+
+**Por qué Inter:** legibilidad alta en UIs densas, x-height generoso, soporte completo de pesos, gratis y self-hosteable. No depender de un CDN externo en runtime evita un punto de fallo y mantiene la privacidad del tenant.
+
+---
+
+## 19. Sistema de UI del frontend
+
+**Decisión:**
+
+- **Estilos:** **Tailwind CSS v4** (configuración en CSS via `@theme`).
+- **Componentes base:** **shadcn/ui** copiado al repo (no como dependencia).
+- **Iconos:** **Heroicons v2** outline, stroke 1.5.
+- **Tablas:** **TanStack Table v8** (headless) compuesto con primitives de shadcn.
+- **Gráficos:** **Recharts**.
+- **Toasts / notificaciones efímeras:** **sonner**.
+
+**Opciones evaluadas para componentes base:**
+
+| Opción | Pros | Contras |
+|---|---|---|
+| shadcn/ui (elegida) | Componentes copiados al repo: control total, sin lock-in, sobre Radix con accesibilidad nativa | Cada componente requiere ser agregado manualmente |
+| MUI / Mantine / Chakra | Ecosistema amplio | Estética opinada, difícil de personalizar profundamente, bundle pesado |
+| Radix primitives sin shadcn | Sin opinión visual | Hay que reconstruir todo desde cero; lento al arrancar |
+| Componentes propios desde cero | Máximo control | Tiempo invertido en reinventar primitives accesibles |
+
+**Por qué se eligió shadcn/ui:** Da accesibilidad probada (Radix por debajo) y control absoluto sobre el código. La paleta y la densidad compacta de Tikora se aplican modificando el código local sin pelear con un sistema de overrides de tema. No hay overhead de runtime por features no usadas, y el upgrade es opt-in (cada componente se actualiza solo cuando se decide).
+
+**Opciones evaluadas para iconos:**
+
+| Opción | Pros | Contras |
+|---|---|---|
+| Heroicons (elegida) | Estilo outline coherente, stroke uniforme, mantenido por el equipo de Tailwind | Catálogo más acotado que Lucide |
+| Lucide React | Catálogo amplio | Algo menos pulido en consistencia entre iconos |
+| Iconos propios | Identidad propia | Costo de diseño y mantenimiento alto |
+
+**Por qué Heroicons:** alineación visual con Tailwind, tamaño y stroke consistentes, API liviana. Si en el futuro hace falta un icono que Heroicons no tiene, se complementa puntualmente sin migrar el set entero.
+
+**Por qué TanStack Table:** la bandeja del agente es la vista más densa de la app (filtros, sort, paginación, resaltado de filas). Una tabla headless da control total del render con primitives de shadcn manteniendo la lógica probada.
+
+**Por qué Recharts:** ya integrado por convención con shadcn (existe `components/ui/chart.tsx` que envuelve Recharts), DX sencilla, suficiente para los dashboards de líder/admin previstos.
+
+**Por qué sonner:** integra perfecto con shadcn, animaciones limpias, API simple, soporte de promesas para toasts asíncronos.
+
+---
+
+## 20. Gestión de estado en el frontend
+
+**Decisión:**
+
+- **Estado del servidor:** **TanStack Query v5**. Toda data del backend pasa por queries y mutations. Cero `useEffect + fetch`.
+- **Estado del cliente:** **Zustand**. Stores pequeños y específicos (auth, notificaciones, UI, filtros), con `persist` middleware donde aplique.
+- **Formularios:** **React Hook Form** con `@hookform/resolvers/zod` consumiendo schemas de `@tikora/core`.
+
+**Opciones evaluadas:**
+
+| Opción | Pros | Contras |
+|---|---|---|
+| TanStack Query + Zustand (elegida) | Separación clara servidor/cliente, cache automático, invalidación granular, stores chicos sin boilerplate | Dos librerías a aprender |
+| Redux Toolkit + RTK Query | Single source of truth, devtools maduras | Boilerplate alto, RTK Query menos flexible que TanStack Query para casos complejos de cache |
+| Apollo Client | Excelente cache | Atado a GraphQL, no aplica con API REST |
+| SWR | Liviano | Menos features que TanStack Query (mutations, infinite queries, prefetch) |
+| Solo Context + useReducer | Sin dependencias | Re-renders ineficientes en stores grandes, sin cache de servidor |
+
+**Por qué se eligió:** TanStack Query resuelve el patrón dominante de Tikora (listados con filtros + detalles + invalidación tras mutaciones + integración con SSE) con menos código que cualquier alternativa. Zustand cubre el resto del estado UI (sesión, sidebar, filtros persistentes) con un footprint mínimo y sin Provider hell. La división servidor/cliente es explícita: si una pieza de información viene del backend, vive en TanStack Query y nunca se duplica en Zustand.
+
+**Por qué React Hook Form + zodResolver:** los schemas Zod del paquete `@tikora/core` se consumen directamente en el formulario, lo que garantiza que el frontend valida exactamente lo mismo que el backend, sin divergencias de regla. La performance de RHF (uncontrolled inputs) escala mejor que controladas a formularios complejos como creación de tickets con adjuntos o configuración admin.
+
+---
+
+## 21. Routing del frontend
+
+**Decisión:** **React Router v7** en modo data router. Configuración centralizada en `pages/routes.tsx`. Protección por rol vía wrapper `<RequireRole>`. Sin separar `routes/` de `pages/`: el archivo de configuración convive con las páginas.
+
+**Opciones evaluadas:**
+
+| Opción | Pros | Contras |
+|---|---|---|
+| React Router v7 (elegida) | Estándar de facto en SPAs React, data router con loaders/actions, lazy loading por ruta | API ligeramente cambiante entre versiones mayores |
+| TanStack Router | Tipado fuerte de rutas, file-based opcional | Ecosistema más chico, curva de aprendizaje extra |
+| Wouter | Muy liviano | Sin loaders ni nested layouts |
+
+**Por qué se eligió:** React Router v7 cubre todo lo que la app necesita (nested layouts, lazy loading, error boundaries por ruta, protección por rol) con la mayor base de adopción y documentación. Centralizar la configuración en `pages/routes.tsx` mantiene el flujo de routing trazable desde un único lugar y elimina la dispersión que aparece cuando cada ruta declara su mapeo en archivos separados.
+
+---
+
+## 22. Persistencia de sesión en el cliente
+
+**Decisión:** **Access token en memoria + refresh token en cookie `httpOnly`** emitida por el backend con `Secure` y `SameSite=Lax`. Interceptor de fetch en `lib/api-client.ts` maneja el refresh automático ante `401`. Logout multi-pestaña vía evento `storage`.
+
+**Opciones evaluadas:**
+
+| Opción | Pros | Contras |
+|---|---|---|
+| Access en memoria + refresh httpOnly cookie (elegida) | Mitiga XSS (JS no puede leer el refresh), access se pierde al cerrar pestaña reduciendo ventana de explotación, mitiga CSRF con `SameSite=Lax` | Requiere coordinación con CORS y cookies en backend |
+| Ambos en `localStorage` | Simple de implementar | Vulnerable a XSS — un script malicioso puede exfiltrar ambos tokens |
+| Ambos en cookies httpOnly | Máxima protección | Requiere endpoints CSRF-safe para mutaciones; complejidad mayor |
+| Access en `sessionStorage` | Se limpia al cerrar pestaña | Sigue accesible vía XSS |
+
+**Por qué se eligió:** Tikora maneja datos internos sensibles (tickets, KB, métricas). Que un access token comprometido no permita renovarse a sí mismo (porque el refresh es inalcanzable desde JS) eleva sustancialmente el costo de explotar un XSS. La complejidad incremental se concentra en `api-client.ts` y queda invisible para el resto del código del frontend, que consume `apiClient.get/post/...` sin preocuparse del refresh.
+
+**Reglas operativas del interceptor:**
+- Para evitar refrescos concurrentes, el cliente HTTP guarda un `refreshPromise` en vuelo. Múltiples 401 simultáneos esperan al mismo promise.
+- El reintento del request original tras refresh ocurre **una sola vez**. Un segundo 401 dispara logout.
+- El logout local sincroniza otras pestañas escribiendo en `localStorage` (clave `tikora.logout`) y reaccionando al evento `storage`.
+
+---
+
+## 23. Realtime en el cliente
+
+**Decisión:** **Una sola conexión SSE global** establecida en `AppShell` cuando el usuario está autenticado. Cliente custom en `lib/sse-client.ts` con reconexión automática y soporte de `Last-Event-ID`. Los eventos disparan invalidaciones de TanStack Query, actualizaciones del store de notificaciones y toasts según corresponda.
+
+**Opciones evaluadas:**
+
+| Opción | Pros | Contras |
+|---|---|---|
+| Conexión SSE global única (elegida) | Una sola suscripción, fácil de razonar, eficiente en recursos del servidor | Requiere coordinar el dispatch hacia múltiples consumidores |
+| Una conexión SSE por vista | Acotación natural de eventos | Múltiples streams duplicados, eventos perdidos al navegar entre vistas, costo operativo mayor |
+| Polling periódico | Simplicidad | Latencia alta, carga innecesaria al servidor |
+
+**Por qué se eligió:** El backend ya usa SSE como canal único de eventos (decidido en §12) y la lógica de qué hacer con cada evento es global (invalidar listas, actualizar contador de la campanita, mostrar toast). Una conexión global expone esa lógica en un único lugar (`sse-client.ts`) y los componentes consumen los efectos secundarios via TanStack Query y los stores, sin acoplarse al transporte. Si una vista necesita reaccionar a un evento puntual (ej. detalle abierto que recibe `TicketUpdated`), basta con observar la query correspondiente — no se requiere otra suscripción SSE.
+
+**Optimistic updates** se aplican selectivamente en acciones reversibles y de bajo impacto (Tomar, Resolver, Marcar leída). Acciones críticas (Reasignar, Cancelar, Aprobar IA, CRUD admin) esperan la respuesta del backend para reflejar el cambio.
+
+---
+
+## 24. Estructura del frontend
+
+**Decisión:** Estructura **mixta** dentro de `apps/front/src/`:
+
+- **`components/`** — agnósticos al dominio: `ui/` (primitives shadcn), `atoms/`, `molecules/`, `organisms/`, `brand/`, `icons/`.
+- **`features/`** — por dominio: `auth/`, `tickets/`, `kb/`, `notifications/`, `areas/`, `users/`, `sla/`, `ai/`, `admin/`. Cada feature tiene `api/`, `components/`, `hooks/`, `lib/`.
+- **`pages/`** — rutas que componen features y layouts. Sin lógica de dominio. Incluye `routes.tsx` (configuración de React Router).
+- **`layouts/`** — `auth-layout`, `app-shell`, `admin-layout`.
+- **`lib/`** — `api-client`, `sse-client`, `query-client`, `permissions`, `ticket-state`, `format`, `env`.
+- **`stores/`** — Zustand stores globales.
+- **`hooks/`** — hooks reutilizables globales.
+- **`styles/`** — `globals.css` con Tailwind v4 y tokens.
+
+**Opciones evaluadas:**
+
+| Opción | Pros | Contras |
+|---|---|---|
+| Mixta atomic + feature (elegida) | Composición clara de UI agnóstica + organización por dominio donde tiene sentido | Hay que decidir caso por caso si algo es agnóstico o de dominio |
+| Solo atomic design puro | Reusabilidad máxima | Lógica de dominio queda dispersa, difícil rastrear de extremo a extremo |
+| Solo feature folders | Cohesión alta por dominio | Componentes que sirven a varios dominios terminan duplicados o forzados a un feature |
+| Carpetas por tipo (`components/`, `hooks/`, `services/`) | Familiar | No escala: un cambio funcional toca decenas de carpetas |
+
+**Por qué se eligió:** Atomic design puro funciona para sistemas de diseño y feature folders puro para apps con dominios muy aislados. Tikora tiene **ambas caras**: necesita un sistema de UI compartido (botones, inputs, badges, semáforos, tablas) que viva una sola vez, y dominios fuertes (tickets, KB, IA, admin) cuya lógica es mejor que viva junta. La regla simple — "si el componente sabe de un concepto del negocio, va al feature; si no, va a `components/`" — hace clara la decisión en cada caso. `pages/` se mantiene fino (solo orquesta), lo que facilita que múltiples páginas compongan los mismos features sin lógica duplicada.
