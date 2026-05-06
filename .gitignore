@@ -1,0 +1,60 @@
+# Dependencias
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+out/
+.nx/
+tmp/
+
+# Coverage
+coverage/
+*.lcov
+
+# Variables de entorno
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+.cache/
+.eslintcache
+.parcel-cache/
+.turbo/
+
+# Tikora — runtime
+apps/back/uploads/
+apps/back/.cache/
+apps/front/.vite/
+
+# Test outputs
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
+# TypeScript
+*.tsbuildinfo
+
+vite.config.*.timestamp*
+vitest.config.*.timestamp*

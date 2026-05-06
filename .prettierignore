@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+coverage
+.nx/cache
+.nx/workspace-data
+pnpm-lock.yaml
+*.tsbuildinfo
+apps/back/uploads
+.cache
