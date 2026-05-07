@@ -1,4 +1,20 @@
+@import '@fontsource-variable/inter';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-/* You can add global styles to this file, and also import other style files */
+
+/* La paleta exacta vive en `tikora-frontend.md` §3.2 — solo se usan las
+   shades listadas (blue/sky para marca, slate para neutros, estados
+   red/amber/emerald). No agregar colores custom. */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+    font-family: 'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+}

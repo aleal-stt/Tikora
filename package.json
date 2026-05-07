@@ -76,6 +76,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
+    "@fontsource-variable/inter": "^5.2.8",
+    "@heroicons/react": "^2.2.0",
+    "@hookform/resolvers": "^5.2.2",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^10.0.2",
     "@nestjs/config": "^4.0.4",
@@ -86,10 +89,15 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^10.0.2",
     "@nestjs/throttler": "^6.5.0",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@tanstack/react-query": "^5.100.9",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.76.6",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "cookie-parser": "^1.4.7",
     "ioredis": "^5.10.1",
+    "lucide-react": "^1.14.0",
     "mongoose": "^9.6.1",
     "multer": "^2.1.1",
     "nestjs-zod": "^5.3.0",
@@ -97,8 +105,13 @@
     "passport-jwt": "^4.0.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "react-hook-form": "^7.75.0",
+    "react-router-dom": "^7.15.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.0",
-    "zod": "^4.4.3"
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.13"
   }
 }
