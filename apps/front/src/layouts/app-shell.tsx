@@ -64,13 +64,13 @@ export function AppShell() {
                 Bandeja
               </SidebarLink>
             )}
-            {hasRole('admin') && (
+            {hasRole('lider', 'admin') && (
               <>
                 <div className="mt-3 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
                   Administración
                 </div>
-                <SidebarLink to="/admin/usuarios" icon={UserGroupIcon}>
-                  Usuarios
+                <SidebarLink to="/admin" icon={UserGroupIcon}>
+                  Panel admin
                 </SidebarLink>
               </>
             )}

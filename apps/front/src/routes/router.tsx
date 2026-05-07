@@ -1,20 +1,25 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { RequireAuth } from '../components/require-auth';
 import { RequireRole } from '../components/require-role';
+import { AreaDetailPage } from '../features/admin/pages/area-detail-page';
+import { AreasPage } from '../features/admin/pages/areas-page';
+import { SlasPage } from '../features/admin/pages/slas-page';
+import { UsuariosPage } from '../features/admin/pages/usuarios-page';
 import { LoginPage } from '../features/auth/pages/login-page';
 import { BandejaPage } from '../features/tickets/pages/bandeja-page';
 import { MisTicketsPage } from '../features/tickets/pages/mis-tickets-page';
 import { NuevoTicketPage } from '../features/tickets/pages/nuevo-ticket-page';
 import { TicketDetailPage } from '../features/tickets/pages/ticket-detail-page';
+import { AdminLayout } from '../layouts/admin-layout';
 import { AppShell } from '../layouts/app-shell';
 import { AuthLayout } from '../layouts/auth-layout';
-import { UsuariosPage } from '../pages/admin/usuarios/usuarios-page';
 import { HomeRedirect } from '../pages/home-redirect';
 
 /**
- * Configuración centralizada de rutas. Cada nueva pantalla se registra
- * acá. Las rutas autenticadas viven bajo `AppShell`; las restringidas
- * por rol se envuelven con `<RequireRole>`.
+ * Configuración centralizada de rutas. Las rutas autenticadas viven bajo
+ * `AppShell`; las /admin/* se agrupan en `AdminLayout` (sub-nav lateral)
+ * y son visibles para `lider` y `admin` — el back filtra el scope dentro
+ * de cada endpoint.
  */
 export const router = createBrowserRouter([
   {
@@ -41,14 +46,20 @@ export const router = createBrowserRouter([
         ),
       },
       {
-        path: '/admin/usuarios',
+        path: '/admin',
         element: (
-          <RequireRole roles={['admin']}>
-            <UsuariosPage />
+          <RequireRole roles={['lider', 'admin']}>
+            <AdminLayout />
           </RequireRole>
         ),
+        children: [
+          { index: true, element: <Navigate to="/admin/usuarios" replace /> },
+          { path: 'usuarios', element: <UsuariosPage /> },
+          { path: 'areas', element: <AreasPage /> },
+          { path: 'areas/:id', element: <AreaDetailPage /> },
+          { path: 'slas', element: <SlasPage /> },
+        ],
       },
-      // `/perfil` queda como redirect a `/mis-tickets` mientras no haya página propia.
       { path: '/perfil', element: <Navigate to="/mis-tickets" replace /> },
     ],
   },
