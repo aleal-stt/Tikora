@@ -19,7 +19,6 @@ import type {
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import type { AuthenticatedUser } from '../../auth/types/auth.types';
-import { ApiException } from '../../common/exceptions/api.exception';
 import { AreaMemberRefDto } from '../dto/area-member-ref.dto';
 import { CreateAreaDto } from '../dto/create-area.dto';
 import { ListAreasQueryDto } from '../dto/list-areas.query.dto';
@@ -149,18 +148,6 @@ export class AreasController {
     return this.areas.updateSlas(caller, id, dto.slas);
   }
 
-  // -------- métricas (postergadas hasta el módulo Tickets) --------
-
-  @Roles('lider', 'admin')
-  @Get(':id/metrics')
-  async metrics(): Promise<never> {
-    // Las métricas requieren agregaciones sobre `tickets`, `classifications`
-    // y `ai_responses` — colecciones que aún no existen. Postergamos a su
-    // sprint para no devolver datos ficticios.
-    throw new ApiException(
-      HttpStatus.NOT_IMPLEMENTED,
-      'AREA_METRICS_NOT_AVAILABLE',
-      'Las métricas estarán disponibles cuando se implemente el módulo de tickets.',
-    );
-  }
+  // `GET /areas/:id/metrics` lo sirve `MetricsController` (en su propio
+  // módulo) para evitar el ciclo `AreasModule ↔ MetricsModule`.
 }
