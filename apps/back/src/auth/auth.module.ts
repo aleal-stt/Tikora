@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PassportModule } from '@nestjs/passport';
 import { Env } from '../config/env.schema';
+import { SseTicketsModule } from '../sse-tickets/sse-tickets.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './controllers/auth.controller';
@@ -26,6 +27,7 @@ import { JwtAccessStrategy } from './strategies/jwt-access.strategy';
     MongooseModule.forFeature([{ name: RefreshToken.name, schema: RefreshTokenSchema }]),
     UsersModule,
     TenantsModule,
+    SseTicketsModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, RefreshTokenService, JwtAccessStrategy],

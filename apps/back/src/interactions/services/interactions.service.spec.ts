@@ -58,9 +58,17 @@ function buildHarness(ticket: FakeTicket | null) {
     findOne: vi.fn(() => ({ exec: vi.fn().mockResolvedValue(ticket) })),
   };
 
-  const service = new InteractionsService(interactionModel as never, ticketModel as never);
+  const events = {
+    emit: vi.fn(),
+  };
 
-  return { service, interactionModel, ticketModel };
+  const service = new InteractionsService(
+    interactionModel as never,
+    ticketModel as never,
+    events as never,
+  );
+
+  return { service, interactionModel, ticketModel, events };
 }
 
 describe('InteractionsService.createForCaller', () => {

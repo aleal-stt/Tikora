@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import type {
   CreateInteraction,
@@ -8,6 +9,10 @@ import type {
 import { Model, Types } from 'mongoose';
 import type { AuthenticatedUser } from '../../auth/types/auth.types';
 import { ApiException } from '../../common/exceptions/api.exception';
+import {
+  InteractionAddedEvent,
+  NOTIFICATION_EVENTS,
+} from '../../notifications/events/notification-events';
 import { Ticket, TicketDocument } from '../../tickets/schemas/ticket.schema';
 import { Interaction, InteractionDocument } from '../schemas/interaction.schema';
 
@@ -35,6 +40,7 @@ export class InteractionsService {
     private readonly interactionModel: Model<InteractionDocument>,
     @InjectModel(Ticket.name)
     private readonly ticketModel: Model<TicketDocument>,
+    private readonly events: EventEmitter2,
   ) {}
 
   // -------- API pública --------
@@ -81,7 +87,35 @@ export class InteractionsService {
       metadata,
     });
 
+    // Resolvemos los participantes ANTES del emit para que el listener no
+    // necesite tocar la colección de tickets — el productor tiene toda la
+    // info en mano.
+    const participantIds = this.resolveParticipants(ticket);
+    this.events.emit(NOTIFICATION_EVENTS.InteractionAdded, {
+      tenantId: ticket.tenantId.toString(),
+      ticketId: ticket._id.toString(),
+      interactionId: created._id.toString(),
+      authorId: caller.userId,
+      type: input.type,
+      contentSnippet: input.content.slice(0, 280),
+      participantIds,
+    } satisfies InteractionAddedEvent);
+
     return this.toResponse(created);
+  }
+
+  /**
+   * Lista de userIds que ven el ticket actualmente: solicitante y agente
+   * asignado (si difiere). El listener filtra al autor para evitar
+   * notificarle su propia interacción.
+   */
+  private resolveParticipants(ticket: TicketDocument): string[] {
+    const participants = new Set<string>();
+    participants.add(ticket.requesterId.toString());
+    if (ticket.assignedAgentId) {
+      participants.add(ticket.assignedAgentId.toString());
+    }
+    return Array.from(participants);
   }
 
   async listForTicket(

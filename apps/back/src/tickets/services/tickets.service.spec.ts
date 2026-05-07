@@ -147,6 +147,12 @@ function buildHarness(opts: HarnessOpts = {}) {
     enqueue: vi.fn().mockResolvedValue(undefined),
   };
 
+  // Stub del EventEmitter2: solo necesitamos que `emit` exista; los tests
+  // que verifican eventos espían directamente sobre `events.emit`.
+  const events = {
+    emit: vi.fn(),
+  };
+
   const service = new TicketsService(
     ticketModel as never,
     userModel as never,
@@ -156,6 +162,7 @@ function buildHarness(opts: HarnessOpts = {}) {
     config as never,
     interactions as never,
     classificationQueue as never,
+    events as never,
   );
 
   return {
@@ -166,6 +173,7 @@ function buildHarness(opts: HarnessOpts = {}) {
     counters,
     interactions,
     classificationQueue,
+    events,
   };
 }
 

@@ -1,5 +1,6 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { classificationOutputSchema, type ClassificationOutput } from '@tikora/core';
 import { Model, Types } from 'mongoose';
@@ -10,6 +11,11 @@ import {
 import { Area, AreaDocument } from '../../areas/schemas/area.schema';
 import type { Env } from '../../config/env.schema';
 import { InteractionsService } from '../../interactions/services/interactions.service';
+import {
+  NOTIFICATION_EVENTS,
+  TicketClassifiedEvent,
+  TicketRequiresClassificationReviewEvent,
+} from '../../notifications/events/notification-events';
 import { Ticket, TicketDocument } from '../../tickets/schemas/ticket.schema';
 import { calculateSlaDeadline } from '../../tickets/tickets.sla';
 import { renderClassificationPromptV1 } from '../prompts/classification-prompt-v1';
@@ -45,6 +51,7 @@ export class ClassificationService {
     private readonly config: ConfigService<Env, true>,
     @Inject(forwardRef(() => InteractionsService))
     private readonly interactions: InteractionsService,
+    private readonly events: EventEmitter2,
   ) {}
 
   async classify(ticketId: string): Promise<ClassifyResult> {
@@ -147,7 +154,7 @@ export class ClassificationService {
       }
 
       // Camino feliz: confianza alta + área válida.
-      await this.classificationModel.create({
+      const classification = await this.classificationModel.create({
         tenantId: ticket.tenantId,
         ticketId: ticket._id,
         area: normalized.area,
@@ -182,6 +189,19 @@ export class ClassificationService {
         confianza: normalized.confianza,
         toEstado: 'escalado',
       });
+
+      this.events.emit(NOTIFICATION_EVENTS.TicketClassified, {
+        tenantId: ticket.tenantId.toString(),
+        ticketId: ticket._id.toString(),
+        classificationId: classification._id.toString(),
+        areaId: targetArea._id.toString(),
+        prioridad: normalized.prioridad,
+        confianza: normalized.confianza,
+        resumen: normalized.resumen,
+        tags: normalized.tags,
+        modelo: model,
+        promptVersion,
+      } satisfies TicketClassifiedEvent);
 
       return { outcome: 'ok', finalEstado: 'escalado' };
     } catch (err) {
@@ -285,6 +305,14 @@ export class ClassificationService {
       confianza: args.aiOutput?.confianza ?? null,
       toEstado: 'requiere_revision_clasificacion',
     });
+
+    this.events.emit(NOTIFICATION_EVENTS.TicketRequiresClassificationReview, {
+      tenantId: ticket.tenantId.toString(),
+      ticketId: ticket._id.toString(),
+      suggestedAreaId: args.aiOutput?.area ?? null,
+      outcome: args.outcome,
+      outcomeDetail: args.outcomeDetail,
+    } satisfies TicketRequiresClassificationReviewEvent);
 
     return { outcome: args.outcome, finalEstado: 'requiere_revision_clasificacion' };
   }

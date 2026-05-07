@@ -5,10 +5,13 @@ import type { LoginResponse, RefreshResponse } from '@tikora/core';
 import type { CookieOptions, Request, Response } from 'express';
 import { Env } from '../../config/env.schema';
 import { ApiException } from '../../common/exceptions/api.exception';
+import { SseTicketsService } from '../../sse-tickets/services/sse-tickets.service';
 import { REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATH } from '../auth.constants';
+import { CurrentUser } from '../decorators/current-user.decorator';
 import { Public } from '../decorators/public.decorator';
 import { LoginDto } from '../dto/login.dto';
 import { AuthService } from '../services/auth.service';
+import type { AuthenticatedUser } from '../types/auth.types';
 
 // Rate limit más estricto que el global para `/auth/login` y `/auth/refresh`.
 // Espeja `THROTTLE_AUTH_*` en `.env.example`; al ajustar uno hay que ajustar
@@ -20,6 +23,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly config: ConfigService<Env, true>,
+    private readonly sseTickets: SseTicketsService,
   ) {}
 
   @Public()
@@ -74,6 +78,26 @@ export class AuthController {
       await this.auth.logout(cookie);
     }
     this.clearRefreshCookie(res);
+  }
+
+  /**
+   * Emite un ticket corto (TTL 90s, single-use) para autenticar la
+   * apertura del stream SSE. `EventSource` no permite enviar Bearer
+   * en headers, así que el cliente pasa el ticket como `?ticket=`.
+   */
+  @HttpCode(HttpStatus.OK)
+  @Post('sse-ticket')
+  async issueSseTicket(
+    @CurrentUser() caller: AuthenticatedUser,
+  ): Promise<{ ticket: string; expiresAt: string }> {
+    const issued = await this.sseTickets.issue({
+      userId: caller.userId,
+      tenantId: caller.tenantId,
+    });
+    return {
+      ticket: issued.ticket,
+      expiresAt: issued.expiresAt.toISOString(),
+    };
   }
 
   private cookieBaseOptions(): CookieOptions {

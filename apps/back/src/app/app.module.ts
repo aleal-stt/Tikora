@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AreasModule } from '../areas/areas.module';
@@ -14,7 +15,10 @@ import { CountersModule } from '../counters/counters.module';
 import { HealthModule } from '../health/health.module';
 import { InteractionsModule } from '../interactions/interactions.module';
 import { MetricsModule } from '../metrics/metrics.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { RedisModule } from '../redis/redis.module';
 import { SeedModule } from '../seed/seed.module';
+import { SseTicketsModule } from '../sse-tickets/sse-tickets.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { TicketsModule } from '../tickets/tickets.module';
 import { UsersModule } from '../users/users.module';
@@ -43,6 +47,12 @@ import { UsersModule } from '../users/users.module';
         },
       ],
     }),
+    // Bus in-process para events de dominio. NotificationsModule escucha;
+    // tickets/classification/interactions emiten. Single-instance — al
+    // escalar se cambia por Redis pubsub sin tocar a los emisores.
+    EventEmitterModule.forRoot(),
+    RedisModule,
+    SseTicketsModule,
     TenantsModule,
     UsersModule,
     AreasModule,
@@ -52,6 +62,7 @@ import { UsersModule } from '../users/users.module';
     AttachmentsModule,
     MetricsModule,
     ClassificationModule,
+    NotificationsModule,
     AuthModule,
     HealthModule,
     SeedModule,

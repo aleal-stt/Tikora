@@ -1,5 +1,6 @@
 import { forwardRef, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import type {
   AssignAgent,
@@ -23,6 +24,13 @@ import type { Env } from '../../config/env.schema';
 import { ClassificationQueueService } from '../../classification/services/classification-queue.service';
 import { CountersService } from '../../counters/services/counters.service';
 import { InteractionsService } from '../../interactions/services/interactions.service';
+import {
+  NOTIFICATION_EVENTS,
+  TicketAssignedEvent,
+  TicketCreatedEvent,
+  TicketReopenedEvent,
+  TicketResolvedEvent,
+} from '../../notifications/events/notification-events';
 import { calculateSlaDeadline } from '../tickets.sla';
 import { User, UserDocument } from '../../users/schemas/user.schema';
 import { Ticket, TicketDocument } from '../schemas/ticket.schema';
@@ -59,6 +67,9 @@ export class TicketsService {
     // El processor consume el modelo Ticket; el create encola jobs de IA.
     @Inject(forwardRef(() => ClassificationQueueService))
     private readonly classificationQueue: ClassificationQueueService,
+    // Bus in-process. NotificationsModule escucha estos eventos y crea
+    // las Notifications + push SSE. Los services no conocen al consumer.
+    private readonly events: EventEmitter2,
   ) {}
 
   // -------- alta y consultas --------
@@ -130,6 +141,15 @@ export class TicketsService {
       toEstado: finalEstado,
       content: `Ticket creado: ${input.asunto}`,
     });
+
+    this.events.emit(NOTIFICATION_EVENTS.TicketCreated, {
+      tenantId: tenantId.toString(),
+      ticketId: created._id.toString(),
+      shortCode: created.shortCode,
+      requesterId: caller.userId,
+      asunto: created.asunto,
+      cuerpoSnippet: created.cuerpo.slice(0, 280),
+    } satisfies TicketCreatedEvent);
 
     return this.toTicketResponse(created);
   }
@@ -273,6 +293,16 @@ export class TicketsService {
       content: 'El agente tomó el ticket.',
     });
 
+    if (ticket.areaId) {
+      this.events.emit(NOTIFICATION_EVENTS.TicketAssigned, {
+        tenantId: ticket.tenantId.toString(),
+        ticketId: ticket._id.toString(),
+        agentId: caller.userId,
+        assignedBy: caller.userId, // self-assign: el listener filtra esta combinación
+        areaId: ticket.areaId.toString(),
+      } satisfies TicketAssignedEvent);
+    }
+
     return this.toTicketResponse(await this.findOrFail(caller.tenantId, id));
   }
 
@@ -310,6 +340,14 @@ export class TicketsService {
       extra: { enviadoPorCorreo: input.enviarPorCorreo, resolvedBy: caller.userId },
       content: input.nota,
     });
+
+    this.events.emit(NOTIFICATION_EVENTS.TicketResolved, {
+      tenantId: ticket.tenantId.toString(),
+      ticketId: ticket._id.toString(),
+      requesterId: ticket.requesterId.toString(),
+      resolvedBy: caller.userId,
+      nota: input.nota,
+    } satisfies TicketResolvedEvent);
 
     return this.toTicketResponse(ticket);
   }
@@ -420,6 +458,16 @@ export class TicketsService {
       content: input.motivo,
     });
 
+    this.events.emit(NOTIFICATION_EVENTS.TicketReopened, {
+      tenantId: ticket.tenantId.toString(),
+      ticketId: ticket._id.toString(),
+      reopenCount: ticket.reopenCount,
+      lastAssignedAgentId: ticket.lastAssignedAgentId
+        ? ticket.lastAssignedAgentId.toString()
+        : null,
+      motivo: input.motivo,
+    } satisfies TicketReopenedEvent);
+
     return this.toTicketResponse(ticket);
   }
 
@@ -490,6 +538,16 @@ export class TicketsService {
       extra: { agentId: agent._id.toString(), assignedBy: caller.userId },
       content: `Agente reasignado.`,
     });
+
+    if (ticket.areaId) {
+      this.events.emit(NOTIFICATION_EVENTS.TicketAssigned, {
+        tenantId: ticket.tenantId.toString(),
+        ticketId: ticket._id.toString(),
+        agentId: agent._id.toString(),
+        assignedBy: caller.userId,
+        areaId: ticket.areaId.toString(),
+      } satisfies TicketAssignedEvent);
+    }
 
     return this.toTicketResponse(ticket);
   }

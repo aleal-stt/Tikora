@@ -118,6 +118,9 @@ function buildHarness(opts: HarnessOpts) {
   const interactions = {
     appendSystemEvent: vi.fn().mockResolvedValue(undefined),
   };
+  const events = {
+    emit: vi.fn(),
+  };
   const config = {
     get: (key: string) => {
       const map: Record<string, unknown> = {
@@ -139,9 +142,18 @@ function buildHarness(opts: HarnessOpts) {
     aiClient as never,
     config as never,
     interactions as never,
+    events as never,
   );
 
-  return { service, ticketModel, areaModel, classificationModel, aiClient, interactions };
+  return {
+    service,
+    ticketModel,
+    areaModel,
+    classificationModel,
+    aiClient,
+    interactions,
+    events,
+  };
 }
 
 describe('ClassificationService.classify', () => {
