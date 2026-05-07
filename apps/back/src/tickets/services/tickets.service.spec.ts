@@ -141,6 +141,12 @@ function buildHarness(opts: HarnessOpts = {}) {
     appendSystemEvent: vi.fn().mockResolvedValue(undefined),
   };
 
+  // Mock de la cola de clasificación. Por default `enqueue` resuelve OK,
+  // simulando que Redis está disponible y el job quedó en cola.
+  const classificationQueue = {
+    enqueue: vi.fn().mockResolvedValue(undefined),
+  };
+
   const service = new TicketsService(
     ticketModel as never,
     userModel as never,
@@ -149,30 +155,43 @@ function buildHarness(opts: HarnessOpts = {}) {
     stateMachine,
     config as never,
     interactions as never,
+    classificationQueue as never,
   );
 
-  return { service, ticketModel, userModel, areaModel, counters, interactions };
+  return {
+    service,
+    ticketModel,
+    userModel,
+    areaModel,
+    counters,
+    interactions,
+    classificationQueue,
+  };
 }
 
 describe('TicketsService.create', () => {
-  it('AI_PHASE=1 deja el ticket en requiere_revision_clasificacion', async () => {
-    const { service, counters } = buildHarness({ aiPhase: 1 });
-    const result = await service.create(asEmpleado(), {
-      asunto: 'Asunto válido',
-      cuerpo: 'Cuerpo con suficiente texto',
-    });
-    expect(result.estado).toBe('requiere_revision_clasificacion');
-    expect(result.shortCode).toBe('TIK-42');
-    expect(counters.nextTicketShortCode).toHaveBeenCalledTimes(1);
-  });
-
-  it('AI_PHASE=2 deja el ticket en recibido', async () => {
-    const { service } = buildHarness({ aiPhase: 2 });
+  it('crea en `recibido` y encola job de clasificación cuando AI_PHASE>=1', async () => {
+    const { service, counters, classificationQueue } = buildHarness({ aiPhase: 1 });
     const result = await service.create(asEmpleado(), {
       asunto: 'Asunto válido',
       cuerpo: 'Cuerpo con suficiente texto',
     });
     expect(result.estado).toBe('recibido');
+    expect(result.shortCode).toBe('TIK-42');
+    expect(counters.nextTicketShortCode).toHaveBeenCalledTimes(1);
+    expect(classificationQueue.enqueue).toHaveBeenCalledTimes(1);
+    expect(classificationQueue.enqueue).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('si el encolado falla, cae a `requiere_revision_clasificacion` (fallback humano)', async () => {
+    const { service, classificationQueue } = buildHarness({ aiPhase: 1 });
+    classificationQueue.enqueue.mockRejectedValueOnce(new Error('redis down'));
+
+    const result = await service.create(asEmpleado(), {
+      asunto: 'Asunto válido',
+      cuerpo: 'Cuerpo con suficiente texto',
+    });
+    expect(result.estado).toBe('requiere_revision_clasificacion');
   });
 });
 
@@ -365,7 +384,7 @@ describe('TicketsService.classify', () => {
 });
 
 describe('TicketsService — emisión de system interactions', () => {
-  it('create emite TicketCreated con toEstado correcto', async () => {
+  it('create emite TicketCreated con toEstado=`recibido` cuando se encola IA', async () => {
     const { service, interactions } = buildHarness({ aiPhase: 1 });
     await service.create(asEmpleado(), {
       asunto: 'Asunto válido',
@@ -374,7 +393,7 @@ describe('TicketsService — emisión de system interactions', () => {
     expect(interactions.appendSystemEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: 'TicketCreated',
-        toEstado: 'requiere_revision_clasificacion',
+        toEstado: 'recibido',
       }),
     );
   });

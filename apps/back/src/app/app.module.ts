@@ -8,6 +8,7 @@ import { AttachmentsModule } from '../attachments/attachments.module';
 import { AuthModule } from '../auth/auth.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { ClassificationModule } from '../classification/classification.module';
 import { Env, validateEnv } from '../config/env.schema';
 import { CountersModule } from '../counters/counters.module';
 import { HealthModule } from '../health/health.module';
@@ -50,6 +51,7 @@ import { UsersModule } from '../users/users.module';
     InteractionsModule,
     AttachmentsModule,
     MetricsModule,
+    ClassificationModule,
     AuthModule,
     HealthModule,
     SeedModule,

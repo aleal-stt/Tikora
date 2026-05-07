@@ -55,15 +55,37 @@ export const envSchema = z.object({
   EMAIL_DELIVERY_MODE: z.enum(['log', 'live']).default('log'),
   EMAIL_FROM: z.string().min(1).default('Tikora <noreply@empresa.com>'),
 
-  // Fase activa de la IA: 1 = sin IA (clasificación humana), 2 = clasificación
-  // por Anthropic con humano de respaldo, 3 = auto-respuesta autónoma. Mientras
-  // sea 1 los tickets nuevos arrancan en `requiere_revision_clasificacion`.
+  // Fase activa de la IA: 1 = clasificación automática + escalado humano,
+  // 2 = clasificación + auto-respuesta sugerida, 3 = auto-respuesta autónoma.
   AI_PHASE: z.coerce.number().int().min(1).max(3).default(1),
 
   // Almacenamiento de adjuntos (provider `local`). En producción se
   // recomienda montar un volumen persistente; cuando se cambie a S3
   // se reemplaza el `IAttachmentStorage` adapter sin tocar el resto.
   UPLOADS_DIR: z.string().min(1).default('./uploads'),
+
+  // Redis — usado por BullMQ para encolar trabajos de clasificación IA.
+  REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
+  REDIS_KEY_PREFIX: z.string().min(1).default('tikora'),
+
+  // Anthropic — `ANTHROPIC_API_KEY` puede quedar vacía en dev: si no está,
+  // la cola encola pero el processor cae al fallback humano para cada job.
+  ANTHROPIC_API_KEY: z.string().default(''),
+  ANTHROPIC_MODEL_CLASSIFICATION: z.string().min(1).default('claude-haiku-4-5-20251001'),
+  ANTHROPIC_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  ANTHROPIC_MAX_RETRIES: z.coerce.number().int().min(0).default(3),
+  ANTHROPIC_RETRY_BACKOFF_MS: z.coerce.number().int().positive().default(1000),
+  ANTHROPIC_MAX_TOKENS_CLASSIFICATION: z.coerce.number().int().positive().default(1024),
+  ANTHROPIC_TEMP_CLASSIFICATION: z.coerce.number().min(0).max(2).default(0),
+  ANTHROPIC_PROMPT_CACHE_ENABLED: booleanString.default(true),
+
+  // Versión activa del prompt de clasificación. Se persiste en cada
+  // `Classification` para auditar cambios entre versiones.
+  CLASSIFICATION_PROMPT_VERSION: z.string().min(1).default('v1'),
+
+  // Por debajo de este umbral, la IA se considera "no segura" y el ticket
+  // pasa a `requiere_revision_clasificacion` para que un humano decida.
+  UMBRAL_CONFIANZA_CLASIFICACION: z.coerce.number().min(0).max(1).default(0.7),
 });
 
 export type Env = z.infer<typeof envSchema>;

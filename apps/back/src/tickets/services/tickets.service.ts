@@ -20,8 +20,10 @@ import { Area, AreaDocument } from '../../areas/schemas/area.schema';
 import type { AuthenticatedUser } from '../../auth/types/auth.types';
 import { ApiException } from '../../common/exceptions/api.exception';
 import type { Env } from '../../config/env.schema';
+import { ClassificationQueueService } from '../../classification/services/classification-queue.service';
 import { CountersService } from '../../counters/services/counters.service';
 import { InteractionsService } from '../../interactions/services/interactions.service';
+import { calculateSlaDeadline } from '../tickets.sla';
 import { User, UserDocument } from '../../users/schemas/user.schema';
 import { Ticket, TicketDocument } from '../schemas/ticket.schema';
 import { TicketStateMachineService } from './ticket-state-machine.service';
@@ -53,6 +55,10 @@ export class TicketsService {
     // forwardRef requerido para resolver el ciclo TicketsModule ↔ InteractionsModule.
     @Inject(forwardRef(() => InteractionsService))
     private readonly interactions: InteractionsService,
+    // forwardRef para el ciclo TicketsModule ↔ ClassificationModule.
+    // El processor consume el modelo Ticket; el create encola jobs de IA.
+    @Inject(forwardRef(() => ClassificationQueueService))
+    private readonly classificationQueue: ClassificationQueueService,
   ) {}
 
   // -------- alta y consultas --------
@@ -62,20 +68,19 @@ export class TicketsService {
     const requesterId = new Types.ObjectId(caller.userId);
 
     const aiPhase = this.config.get('AI_PHASE', { infer: true });
-    // Sin IA, los tickets nuevos van directo a revisión humana. Cuando llegue
-    // el módulo IA, esta rama desaparece y el alta sale en `recibido`.
-    const estadoInicial: EstadoTicket =
-      aiPhase >= 2 ? 'recibido' : 'requiere_revision_clasificacion';
 
     const shortCode = await this.counters.nextTicketShortCode(tenantId);
 
+    // Siempre creamos en `recibido`. El ClassificationProcessor transiciona
+    // a `escalado` (alta confianza) o `requiere_revision_clasificacion`
+    // (baja/error). Si el encolado falla, caemos a fallback humano in-line.
     const created = await this.ticketModel.create({
       tenantId,
       shortCode,
       requesterId,
       asunto: input.asunto,
       cuerpo: input.cuerpo,
-      estado: estadoInicial,
+      estado: 'recibido',
       prioridad: null,
       areaId: null,
       classificationId: null,
@@ -95,11 +100,34 @@ export class TicketsService {
       closedDefinitivelyAt: null,
     });
 
+    let finalEstado: EstadoTicket = 'recibido';
+    if (aiPhase >= 1) {
+      try {
+        await this.classificationQueue.enqueue(created._id.toString());
+      } catch (err) {
+        // Sin Redis o error de cola: fallback in-line a revisión humana
+        // para que el ticket no quede atascado en `recibido`.
+        this.logger.warn(
+          `Encolado de clasificación falló para ticketId=${created._id.toString()}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        created.estado = 'requiere_revision_clasificacion';
+        await created.save();
+        finalEstado = 'requiere_revision_clasificacion';
+      }
+    } else {
+      // Modo manual (no debería ocurrir hoy: AI_PHASE.min=1) — defensivo.
+      created.estado = 'requiere_revision_clasificacion';
+      await created.save();
+      finalEstado = 'requiere_revision_clasificacion';
+    }
+
     await this.emitSystem({
       tenantId,
       ticketId: created._id,
       eventName: 'TicketCreated',
-      toEstado: estadoInicial,
+      toEstado: finalEstado,
       content: `Ticket creado: ${input.asunto}`,
     });
 
@@ -511,7 +539,7 @@ export class TicketsService {
     ticket.areaId = targetArea._id;
     ticket.assignedAgentId = null;
     if (ticket.prioridad) {
-      ticket.slaDeadline = this.calculateSlaDeadline(ticket.prioridad, targetArea.slas);
+      ticket.slaDeadline = calculateSlaDeadline(ticket.prioridad, targetArea.slas);
     }
     await ticket.save();
 
@@ -574,7 +602,7 @@ export class TicketsService {
     ticket.estado = 'escalado';
     ticket.areaId = targetArea._id;
     ticket.prioridad = input.prioridad;
-    ticket.slaDeadline = this.calculateSlaDeadline(input.prioridad, targetArea.slas);
+    ticket.slaDeadline = calculateSlaDeadline(input.prioridad, targetArea.slas);
     await ticket.save();
 
     await this.emitSystem({
@@ -663,19 +691,6 @@ export class TicketsService {
       'TICKET_AREA_FORBIDDEN',
       'No tenés permisos sobre el área de este ticket.',
     );
-  }
-
-  /**
-   * Cálculo del SLA en ms wallclock (TODO: pasar a horas hábiles del tenant
-   * cuando exista el calendario laboral con feriados). Suficiente para
-   * desbloquear el flujo y para tener un valor determinista en tests.
-   */
-  private calculateSlaDeadline(
-    prioridad: Prioridad,
-    slas: { alta: number; media: number; baja: number },
-  ): Date {
-    const hours = slas[prioridad];
-    return new Date(Date.now() + hours * 60 * 60 * 1000);
   }
 
   private toObjectId(id: string, errorCode: string): Types.ObjectId {
