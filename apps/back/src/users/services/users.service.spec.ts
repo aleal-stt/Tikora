@@ -86,6 +86,25 @@ function buildHarness(
     })),
   };
 
+  // Stub mínimo del modelo Area: las funciones de sync solo hacen
+  // `updateMany`/`countDocuments`. Por default `countDocuments` simula que
+  // todas las áreas referenciadas existen (devuelve el largo de `$in`),
+  // así los tests no tienen que cablear el caso happy path.
+  let configuredAreasCount: number | null = null;
+  const areaModel = {
+    countDocuments: vi.fn((filter: { _id?: { $in?: unknown[] } }) => ({
+      exec: vi
+        .fn()
+        .mockResolvedValue(
+          configuredAreasCount !== null ? configuredAreasCount : filter?._id?.$in?.length ?? 0,
+        ),
+    })),
+    updateMany: vi.fn(() => ({ exec: vi.fn().mockResolvedValue({}) })),
+  };
+  const setExistingAreasCount = (n: number | null) => {
+    configuredAreasCount = n;
+  };
+
   const passwords = {
     hash: vi.fn().mockResolvedValue('new-hash'),
     compare: vi.fn().mockResolvedValue(true),
@@ -95,9 +114,22 @@ function buildHarness(
     sendWelcomeEmail: vi.fn().mockResolvedValue(undefined),
   };
 
-  const service = new UsersService(userModel as never, passwords as never, emails as never);
+  const service = new UsersService(
+    userModel as never,
+    areaModel as never,
+    passwords as never,
+    emails as never,
+  );
 
-  return { service, userModel, passwords, emails, findOneCalls };
+  return {
+    service,
+    userModel,
+    areaModel,
+    passwords,
+    emails,
+    findOneCalls,
+    setExistingAreasCount,
+  };
 }
 
 describe('UsersService.createForCaller', () => {

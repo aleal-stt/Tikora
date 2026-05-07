@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { AreasModule } from '../areas/areas.module';
 import { AuthModule } from '../auth/auth.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -38,6 +39,7 @@ import { UsersModule } from '../users/users.module';
     }),
     TenantsModule,
     UsersModule,
+    AreasModule,
     AuthModule,
     HealthModule,
     SeedModule,

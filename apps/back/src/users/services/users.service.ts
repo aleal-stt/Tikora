@@ -2,10 +2,17 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import type { CreateUser, UpdateUser, User as UserResponse, UserListResponse } from '@tikora/core';
 import { Model, QueryFilter, Types } from 'mongoose';
+import {
+  detachUserFromAllAreas,
+  ensureAreasExistAndActive,
+  syncUserMembership,
+} from '../../areas/areas.sync';
+import { Area, AreaDocument } from '../../areas/schemas/area.schema';
 import type { AuthenticatedUser } from '../../auth/types/auth.types';
 import { ApiException } from '../../common/exceptions/api.exception';
 import { EmailService } from '../../email/services/email.service';
 import { User, UserDocument } from '../schemas/user.schema';
+import { toUserResponse } from '../users.mapper';
 import { PasswordService } from './password.service';
 
 interface ListParams {
@@ -20,6 +27,7 @@ const DEFAULT_PAGE_SIZE = 50;
 export class UsersService {
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
+    @InjectModel(Area.name) private readonly areaModel: Model<AreaDocument>,
     private readonly passwords: PasswordService,
     private readonly emails: EmailService,
   ) {}
@@ -87,7 +95,6 @@ export class UsersService {
 
     if (caller.role === 'lider') {
       if (caller.areaIds.length === 0) {
-        // Líder sin áreas no ve a nadie (caso defensivo; el alta lo evita).
         return { items: [], nextCursor: null };
       }
       filter.areaIds = { $in: caller.areaIds.map((id) => new Types.ObjectId(id)) };
@@ -108,7 +115,7 @@ export class UsersService {
     const last = page[page.length - 1];
 
     return {
-      items: page.map((d) => this.toUserResponse(d)),
+      items: page.map((d) => toUserResponse(d)),
       nextCursor: hasMore && last ? this.encodeCursor(last._id) : null,
     };
   }
@@ -116,7 +123,7 @@ export class UsersService {
   async getByIdForCaller(caller: AuthenticatedUser, id: string): Promise<UserResponse> {
     const target = await this.findOrFail(caller.tenantId, id);
     this.assertCanReadAsLeader(caller, target);
-    return this.toUserResponse(target);
+    return toUserResponse(target);
   }
 
   async createForCaller(caller: AuthenticatedUser, input: CreateUser): Promise<UserResponse> {
@@ -133,6 +140,8 @@ export class UsersService {
       );
     }
 
+    await ensureAreasExistAndActive(this.areaModel, tenantId, input.areaIds);
+
     const passwordHash = await this.passwords.hash(input.temporaryPassword);
     const created = await this.userModel.create({
       tenantId,
@@ -148,19 +157,29 @@ export class UsersService {
       lockedUntil: null,
     });
 
-    // El correo es best-effort: si el adapter falla no perdemos el alta.
-    // En modo `log` esto siempre pasa; en modo `live` un fallo de Resend
-    // queda solo como warning para que oncall lo vea.
+    // Sincronización con `areas`: agregar al user en el campo correspondiente.
+    await syncUserMembership(
+      this.areaModel,
+      tenantId,
+      created._id,
+      'empleado', // pretender estado anterior sin membership
+      [],
+      input.role,
+      input.areaIds,
+    );
+
+    // Welcome email best-effort (modo `log` siempre OK; modo `live` no debe
+    // bloquear el alta — el deliverer registra el fallo).
     try {
       await this.emails.sendWelcomeEmail(
         { email: created.email, fullName: created.fullName },
         input.temporaryPassword,
       );
     } catch {
-      // El logger del deliverer ya capturó el detalle; acá solo evitamos romper.
+      // El logger del deliverer ya capturó el detalle.
     }
 
-    return this.toUserResponse(created);
+    return toUserResponse(created);
   }
 
   async updateForCaller(
@@ -171,22 +190,40 @@ export class UsersService {
     const target = await this.findOrFail(caller.tenantId, id);
     this.assertCanReadAsLeader(caller, target);
 
-    const nextRole = input.role ?? target.role;
-    const nextAreaIds = input.areaIds ?? target.areaIds.map((a) => a.toString());
+    const oldRole = target.role;
+    const oldAreaIds = target.areaIds.map((a) => a.toString());
+    const nextRole = input.role ?? oldRole;
+    const nextAreaIds = input.areaIds ?? oldAreaIds;
+
     this.assertLeaderCanAssign(caller, nextRole, nextAreaIds, target);
     this.assertRoleAreasConsistent(nextRole, nextAreaIds);
 
-    const update: Partial<User> = {};
-    if (input.fullName !== undefined) update.fullName = input.fullName;
-    if (input.role !== undefined) update.role = input.role;
     if (input.areaIds !== undefined) {
-      update.areaIds = input.areaIds.map((a) => new Types.ObjectId(a));
+      await ensureAreasExistAndActive(this.areaModel, target.tenantId, input.areaIds);
     }
-    if (input.active !== undefined) update.active = input.active;
 
-    Object.assign(target, update);
+    if (input.fullName !== undefined) target.fullName = input.fullName;
+    if (input.role !== undefined) target.role = input.role;
+    if (input.areaIds !== undefined) {
+      target.areaIds = input.areaIds.map((a) => new Types.ObjectId(a));
+    }
+    if (input.active !== undefined) target.active = input.active;
+
     await target.save();
-    return this.toUserResponse(target);
+
+    if (input.role !== undefined || input.areaIds !== undefined) {
+      await syncUserMembership(
+        this.areaModel,
+        target.tenantId,
+        target._id,
+        oldRole,
+        oldAreaIds,
+        nextRole,
+        nextAreaIds,
+      );
+    }
+
+    return toUserResponse(target);
   }
 
   async softDeleteForCaller(caller: AuthenticatedUser, id: string): Promise<void> {
@@ -199,14 +236,17 @@ export class UsersService {
     }
     const target = await this.findOrFail(caller.tenantId, id);
     target.active = false;
+    target.areaIds = [];
     await target.save();
+
+    await detachUserFromAllAreas(this.areaModel, target.tenantId, target._id);
   }
 
   async updateProfile(caller: AuthenticatedUser, fullName: string): Promise<UserResponse> {
     const target = await this.findOrFail(caller.tenantId, caller.userId);
     target.fullName = fullName;
     await target.save();
-    return this.toUserResponse(target);
+    return toUserResponse(target);
   }
 
   async updatePassword(
@@ -259,11 +299,6 @@ export class UsersService {
     }
   }
 
-  /**
-   * Valida que un líder solo asigne rol `agente` y solo dentro de sus áreas.
-   * El admin puede cualquier cosa. El target opcional cubre el caso UPDATE
-   * (un líder no debe poder mover a un usuario fuera de sus áreas).
-   */
   private assertLeaderCanAssign(
     caller: AuthenticatedUser,
     role: string,
@@ -318,21 +353,6 @@ export class UsersService {
         'Agentes y líderes deben tener al menos un área asignada.',
       );
     }
-  }
-
-  private toUserResponse(doc: UserDocument): UserResponse {
-    return {
-      id: doc._id.toString(),
-      email: doc.email,
-      fullName: doc.fullName,
-      role: doc.role,
-      areaIds: doc.areaIds.map((a) => a.toString()),
-      active: doc.active,
-      mustChangePassword: doc.mustChangePassword,
-      lastLoginAt: doc.lastLoginAt ? doc.lastLoginAt.toISOString() : null,
-      createdAt: doc.createdAt.toISOString(),
-      updatedAt: doc.updatedAt.toISOString(),
-    };
   }
 
   private encodeCursor(id: Types.ObjectId): string {
