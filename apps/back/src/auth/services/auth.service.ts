@@ -7,9 +7,9 @@ import { Env } from '../../config/env.schema';
 import { ApiException } from '../../common/exceptions/api.exception';
 import { TenantsService } from '../../tenants/services/tenants.service';
 import { UserDocument } from '../../users/schemas/user.schema';
+import { PasswordService } from '../../users/services/password.service';
 import { UsersService } from '../../users/services/users.service';
 import { JwtAccessPayload } from '../types/auth.types';
-import { PasswordService } from './password.service';
 import { IssuedRefreshToken, RefreshTokenService } from './refresh-token.service';
 
 interface LoginInput {

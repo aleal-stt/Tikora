@@ -41,6 +41,15 @@ export class User {
 
   @Prop({ type: Date, default: null })
   lockedUntil!: Date | null;
+
+  // Mongoose maneja estas dos automáticamente vía `timestamps: true`,
+  // pero declaramos los tipos para que el mapper de respuesta los lea
+  // sin hacer casts.
+  @Prop({ type: Date })
+  createdAt!: Date;
+
+  @Prop({ type: Date })
+  updatedAt!: Date;
 }
 
 export type UserDocument = HydratedDocument<User>;

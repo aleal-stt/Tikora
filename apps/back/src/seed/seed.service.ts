@@ -59,7 +59,7 @@ export class SeedService implements OnApplicationBootstrap {
     const saltRounds = this.config.get('BCRYPT_SALT_ROUNDS', { infer: true });
     const passwordHash = await bcrypt.hash(adminPassword, saltRounds);
 
-    const admin = await this.users.create({
+    const admin = await this.users.createRaw({
       tenantId: tenant._id,
       email: adminEmail,
       fullName: adminFullName,

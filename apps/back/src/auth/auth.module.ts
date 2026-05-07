@@ -9,7 +9,6 @@ import { UsersModule } from '../users/users.module';
 import { AuthController } from './controllers/auth.controller';
 import { RefreshToken, RefreshTokenSchema } from './schemas/refresh-token.schema';
 import { AuthService } from './services/auth.service';
-import { PasswordService } from './services/password.service';
 import { RefreshTokenService } from './services/refresh-token.service';
 import { JwtAccessStrategy } from './strategies/jwt-access.strategy';
 
@@ -29,7 +28,7 @@ import { JwtAccessStrategy } from './strategies/jwt-access.strategy';
     TenantsModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, RefreshTokenService, PasswordService, JwtAccessStrategy],
+  providers: [AuthService, RefreshTokenService, JwtAccessStrategy],
   exports: [AuthService],
 })
 export class AuthModule {}

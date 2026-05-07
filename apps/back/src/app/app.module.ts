@@ -5,6 +5,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from '../auth/auth.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
 import { Env, validateEnv } from '../config/env.schema';
 import { HealthModule } from '../health/health.module';
 import { SeedModule } from '../seed/seed.module';
@@ -44,8 +45,10 @@ import { UsersModule } from '../users/users.module';
   providers: [
     // Orden importa: Throttler primero corta abuso antes de gastar CPU
     // verificando JWT. JwtAuthGuard luego permite o rechaza según `@Public()`.
+    // RolesGuard corre al final y depende de `request.user` que pobló JwtAuthGuard.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule {}
