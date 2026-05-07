@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { forwardRef, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import type {
@@ -21,6 +21,7 @@ import type { AuthenticatedUser } from '../../auth/types/auth.types';
 import { ApiException } from '../../common/exceptions/api.exception';
 import type { Env } from '../../config/env.schema';
 import { CountersService } from '../../counters/services/counters.service';
+import { InteractionsService } from '../../interactions/services/interactions.service';
 import { User, UserDocument } from '../../users/schemas/user.schema';
 import { Ticket, TicketDocument } from '../schemas/ticket.schema';
 import { TicketStateMachineService } from './ticket-state-machine.service';
@@ -40,6 +41,8 @@ const REOPEN_GRACE_DAYS = 5;
 
 @Injectable()
 export class TicketsService {
+  private readonly logger = new Logger(TicketsService.name);
+
   constructor(
     @InjectModel(Ticket.name) private readonly ticketModel: Model<TicketDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
@@ -47,6 +50,9 @@ export class TicketsService {
     private readonly counters: CountersService,
     private readonly stateMachine: TicketStateMachineService,
     private readonly config: ConfigService<Env, true>,
+    // forwardRef requerido para resolver el ciclo TicketsModule ↔ InteractionsModule.
+    @Inject(forwardRef(() => InteractionsService))
+    private readonly interactions: InteractionsService,
   ) {}
 
   // -------- alta y consultas --------
@@ -87,6 +93,14 @@ export class TicketsService {
       cancelReason: null,
       reopenCount: 0,
       closedDefinitivelyAt: null,
+    });
+
+    await this.emitSystem({
+      tenantId,
+      ticketId: created._id,
+      eventName: 'TicketCreated',
+      toEstado: estadoInicial,
+      content: `Ticket creado: ${input.asunto}`,
     });
 
     return this.toTicketResponse(created);
@@ -221,13 +235,23 @@ export class TicketsService {
       );
     }
 
+    await this.emitSystem({
+      tenantId: ticket.tenantId,
+      ticketId: ticket._id,
+      eventName: 'TicketTaken',
+      fromEstado: 'escalado',
+      toEstado: 'en_progreso',
+      extra: { agentId: agentObjectId.toString() },
+      content: 'El agente tomó el ticket.',
+    });
+
     return this.toTicketResponse(await this.findOrFail(caller.tenantId, id));
   }
 
   async resolve(
     caller: AuthenticatedUser,
     id: string,
-    _input: ResolveTicket,
+    input: ResolveTicket,
   ): Promise<TicketResponse> {
     const ticket = await this.findOrFail(caller.tenantId, id);
     this.assertOperatesOnArea(caller, ticket);
@@ -242,11 +266,22 @@ export class TicketsService {
       );
     }
 
+    const fromEstado = ticket.estado;
     ticket.estado = 'cerrado';
     ticket.resolutionType = 'manual';
     ticket.resolvedBy = new Types.ObjectId(caller.userId);
     ticket.resolvedAt = new Date();
     await ticket.save();
+
+    await this.emitSystem({
+      tenantId: ticket.tenantId,
+      ticketId: ticket._id,
+      eventName: 'TicketResolved',
+      fromEstado,
+      toEstado: 'cerrado',
+      extra: { enviadoPorCorreo: input.enviarPorCorreo, resolvedBy: caller.userId },
+      content: input.nota,
+    });
 
     return this.toTicketResponse(ticket);
   }
@@ -273,18 +308,29 @@ export class TicketsService {
       );
     }
 
+    const fromEstado = ticket.estado;
     ticket.estado = 'cancelado';
     ticket.cancelledBy = new Types.ObjectId(caller.userId);
     ticket.cancelledAt = new Date();
     ticket.cancelReason = input.motivo;
     await ticket.save();
+
+    await this.emitSystem({
+      tenantId: ticket.tenantId,
+      ticketId: ticket._id,
+      eventName: 'TicketCancelled',
+      fromEstado,
+      toEstado: 'cancelado',
+      content: input.motivo,
+    });
+
     return this.toTicketResponse(ticket);
   }
 
   async reopen(
     caller: AuthenticatedUser,
     id: string,
-    _input: ReopenTicket,
+    input: ReopenTicket,
   ): Promise<TicketResponse> {
     const ticket = await this.findOrFail(caller.tenantId, id);
     if (ticket.requesterId.toString() !== caller.userId) {
@@ -335,6 +381,17 @@ export class TicketsService {
     ticket.resolutionType = null;
     ticket.reopenCount += 1;
     await ticket.save();
+
+    await this.emitSystem({
+      tenantId: ticket.tenantId,
+      ticketId: ticket._id,
+      eventName: 'TicketReopened',
+      fromEstado: 'cerrado',
+      toEstado: targetState,
+      extra: { reopenCount: ticket.reopenCount },
+      content: input.motivo,
+    });
+
     return this.toTicketResponse(ticket);
   }
 
@@ -387,6 +444,7 @@ export class TicketsService {
       );
     }
 
+    const fromEstado = ticket.estado;
     if (ticket.estado === 'escalado') {
       this.stateMachine.assertTransition('escalado', 'en_progreso');
       ticket.estado = 'en_progreso';
@@ -394,6 +452,16 @@ export class TicketsService {
     ticket.assignedAgentId = agent._id;
     ticket.lastAssignedAgentId = agent._id;
     await ticket.save();
+
+    await this.emitSystem({
+      tenantId: ticket.tenantId,
+      ticketId: ticket._id,
+      eventName: 'TicketAgentAssigned',
+      fromEstado,
+      toEstado: ticket.estado,
+      extra: { agentId: agent._id.toString(), assignedBy: caller.userId },
+      content: `Agente reasignado.`,
+    });
 
     return this.toTicketResponse(ticket);
   }
@@ -434,6 +502,8 @@ export class TicketsService {
     }
 
     // Reasignar entre áreas siempre vuelve a `escalado` y limpia agente.
+    const fromEstado = ticket.estado;
+    const fromAreaId = ticket.areaId?.toString() ?? null;
     if (ticket.estado !== 'escalado') {
       this.stateMachine.assertTransition(ticket.estado, 'escalado');
     }
@@ -444,6 +514,21 @@ export class TicketsService {
       ticket.slaDeadline = this.calculateSlaDeadline(ticket.prioridad, targetArea.slas);
     }
     await ticket.save();
+
+    await this.emitSystem({
+      tenantId: ticket.tenantId,
+      ticketId: ticket._id,
+      eventName: 'TicketAreaReassigned',
+      fromEstado,
+      toEstado: 'escalado',
+      extra: {
+        fromAreaId,
+        toAreaId: targetArea._id.toString(),
+        reassignedBy: caller.userId,
+      },
+      content: input.motivo,
+    });
+
     return this.toTicketResponse(ticket);
   }
 
@@ -491,10 +576,52 @@ export class TicketsService {
     ticket.prioridad = input.prioridad;
     ticket.slaDeadline = this.calculateSlaDeadline(input.prioridad, targetArea.slas);
     await ticket.save();
+
+    await this.emitSystem({
+      tenantId: ticket.tenantId,
+      ticketId: ticket._id,
+      eventName: 'TicketClassified',
+      fromEstado: 'requiere_revision_clasificacion',
+      toEstado: 'escalado',
+      extra: {
+        areaId: targetArea._id.toString(),
+        prioridad: input.prioridad,
+        classifiedBy: caller.userId,
+      },
+      content: input.motivo ?? `Clasificado a ${targetArea.name} (prioridad ${input.prioridad}).`,
+    });
+
     return this.toTicketResponse(ticket);
   }
 
   // -------- helpers --------
+
+  /**
+   * Wrapper best-effort sobre `InteractionsService.appendSystemEvent`. Si la
+   * persistencia de la interacción falla, lo loggeamos pero no abortamos la
+   * operación principal — la mutación del ticket ya se persistió.
+   */
+  private async emitSystem(args: {
+    tenantId: Types.ObjectId;
+    ticketId: Types.ObjectId;
+    eventName: string;
+    fromEstado?: EstadoTicket;
+    toEstado?: EstadoTicket;
+    extra?: Record<string, unknown>;
+    content: string;
+  }): Promise<void> {
+    try {
+      await this.interactions.appendSystemEvent(args);
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo emitir interaction de sistema ${
+          args.eventName
+        } para ticketId=${args.ticketId.toString()}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
 
   private async findOrFail(tenantId: string, id: string): Promise<TicketDocument> {
     const objectId = this.toObjectId(id, 'TICKET_NOT_FOUND');

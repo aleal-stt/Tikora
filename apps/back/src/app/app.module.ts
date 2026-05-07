@@ -10,6 +10,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Env, validateEnv } from '../config/env.schema';
 import { CountersModule } from '../counters/counters.module';
 import { HealthModule } from '../health/health.module';
+import { InteractionsModule } from '../interactions/interactions.module';
 import { SeedModule } from '../seed/seed.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { TicketsModule } from '../tickets/tickets.module';
@@ -44,6 +45,7 @@ import { UsersModule } from '../users/users.module';
     AreasModule,
     CountersModule,
     TicketsModule,
+    InteractionsModule,
     AuthModule,
     HealthModule,
     SeedModule,

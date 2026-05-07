@@ -135,6 +135,12 @@ function buildHarness(opts: HarnessOpts = {}) {
     get: (key: string) => (key === 'AI_PHASE' ? opts.aiPhase ?? 1 : undefined),
   };
 
+  // Mock de InteractionsService: capturamos los appendSystemEvent para que los
+  // tests puedan aseverar qué eventos emitió cada transición.
+  const interactions = {
+    appendSystemEvent: vi.fn().mockResolvedValue(undefined),
+  };
+
   const service = new TicketsService(
     ticketModel as never,
     userModel as never,
@@ -142,9 +148,10 @@ function buildHarness(opts: HarnessOpts = {}) {
     counters as never,
     stateMachine,
     config as never,
+    interactions as never,
   );
 
-  return { service, ticketModel, userModel, areaModel, counters };
+  return { service, ticketModel, userModel, areaModel, counters, interactions };
 }
 
 describe('TicketsService.create', () => {
@@ -354,5 +361,84 @@ describe('TicketsService.classify', () => {
     const deadlineMs = new Date(result.slaDeadline as string).getTime();
     expect(deadlineMs).toBeGreaterThan(Date.now());
     expect(deadlineMs).toBeLessThanOrEqual(Date.now() + 4 * 60 * 60 * 1000 + 1000);
+  });
+});
+
+describe('TicketsService — emisión de system interactions', () => {
+  it('create emite TicketCreated con toEstado correcto', async () => {
+    const { service, interactions } = buildHarness({ aiPhase: 1 });
+    await service.create(asEmpleado(), {
+      asunto: 'Asunto válido',
+      cuerpo: 'Cuerpo con suficiente texto',
+    });
+    expect(interactions.appendSystemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: 'TicketCreated',
+        toEstado: 'requiere_revision_clasificacion',
+      }),
+    );
+  });
+
+  it('cancel emite TicketCancelled con el motivo como content', async () => {
+    const requester = asEmpleado();
+    const ticket = buildTicketDoc({
+      estado: 'requiere_revision_clasificacion',
+      requesterId: new Types.ObjectId(requester.userId),
+    });
+    const { service, interactions } = buildHarness({ ticket });
+
+    await service.cancel(requester, ticket._id.toString(), {
+      motivo: 'ya lo resolví',
+    });
+    expect(interactions.appendSystemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: 'TicketCancelled',
+        fromEstado: 'requiere_revision_clasificacion',
+        toEstado: 'cancelado',
+        content: 'ya lo resolví',
+      }),
+    );
+  });
+
+  it('classify emite TicketClassified con extra y content', async () => {
+    const ticket = buildTicketDoc({ estado: 'requiere_revision_clasificacion' });
+    const area = {
+      _id: new Types.ObjectId(),
+      tenantId: TENANT_ID,
+      active: true,
+      slas: { alta: 4, media: 24, baja: 48 },
+      name: 'Soporte TI',
+    };
+    const { service, interactions } = buildHarness({ ticket, area: area as never });
+
+    await service.classify(asAdmin(), ticket._id.toString(), {
+      areaId: area._id.toString(),
+      prioridad: 'alta',
+      motivo: 'pertenece a TI',
+    });
+    expect(interactions.appendSystemEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: 'TicketClassified',
+        fromEstado: 'requiere_revision_clasificacion',
+        toEstado: 'escalado',
+        content: 'pertenece a TI',
+      }),
+    );
+  });
+
+  it('si appendSystemEvent falla, la transición sigue exitosa', async () => {
+    const requester = asEmpleado();
+    const ticket = buildTicketDoc({
+      estado: 'requiere_revision_clasificacion',
+      requesterId: new Types.ObjectId(requester.userId),
+    });
+    const { service, interactions } = buildHarness({ ticket });
+    interactions.appendSystemEvent.mockRejectedValueOnce(new Error('mongo down'));
+
+    // El cancel debe completarse aunque la interacción falle (best-effort).
+    const result = await service.cancel(requester, ticket._id.toString(), {
+      motivo: 'ok',
+    });
+    expect(result.estado).toBe('cancelado');
   });
 });

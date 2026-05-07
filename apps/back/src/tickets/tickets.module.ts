@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AreasModule } from '../areas/areas.module';
 import { CountersModule } from '../counters/counters.module';
+import { InteractionsModule } from '../interactions/interactions.module';
 import { UsersModule } from '../users/users.module';
 import { TicketsController } from './controllers/tickets.controller';
 import { Ticket, TicketSchema } from './schemas/ticket.schema';
@@ -16,9 +17,15 @@ import { TicketsService } from './services/tickets.service';
     UsersModule,
     AreasModule,
     CountersModule,
+    // forwardRef bilateral con InteractionsModule: emitimos system events
+    // al transicionar tickets, e InteractionsModule consulta nuestro
+    // modelo Ticket para validar permisos.
+    forwardRef(() => InteractionsModule),
   ],
   controllers: [TicketsController],
   providers: [TicketsService, TicketStateMachineService],
-  exports: [TicketsService],
+  // Exportamos `MongooseModule` para que InteractionsModule reciba el
+  // modelo Ticket sin tocar al service directamente.
+  exports: [TicketsService, MongooseModule],
 })
 export class TicketsModule {}
