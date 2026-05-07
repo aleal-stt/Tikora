@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AreasModule } from '../areas/areas.module';
+import { AttachmentsModule } from '../attachments/attachments.module';
 import { AuthModule } from '../auth/auth.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -46,6 +47,7 @@ import { UsersModule } from '../users/users.module';
     CountersModule,
     TicketsModule,
     InteractionsModule,
+    AttachmentsModule,
     AuthModule,
     HealthModule,
     SeedModule,

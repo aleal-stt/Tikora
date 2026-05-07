@@ -59,6 +59,11 @@ export const envSchema = z.object({
   // por Anthropic con humano de respaldo, 3 = auto-respuesta autónoma. Mientras
   // sea 1 los tickets nuevos arrancan en `requiere_revision_clasificacion`.
   AI_PHASE: z.coerce.number().int().min(1).max(3).default(1),
+
+  // Almacenamiento de adjuntos (provider `local`). En producción se
+  // recomienda montar un volumen persistente; cuando se cambie a S3
+  // se reemplaza el `IAttachmentStorage` adapter sin tocar el resto.
+  UPLOADS_DIR: z.string().min(1).default('./uploads'),
 });
 
 export type Env = z.infer<typeof envSchema>;
