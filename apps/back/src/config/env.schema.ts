@@ -54,6 +54,11 @@ export const envSchema = z.object({
   // Resend en un sprint posterior. En dev quedamos con `log`.
   EMAIL_DELIVERY_MODE: z.enum(['log', 'live']).default('log'),
   EMAIL_FROM: z.string().min(1).default('Tikora <noreply@empresa.com>'),
+
+  // Fase activa de la IA: 1 = sin IA (clasificación humana), 2 = clasificación
+  // por Anthropic con humano de respaldo, 3 = auto-respuesta autónoma. Mientras
+  // sea 1 los tickets nuevos arrancan en `requiere_revision_clasificacion`.
+  AI_PHASE: z.coerce.number().int().min(1).max(3).default(1),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -36,7 +36,18 @@ export default [
       '**/*.cjs',
       '**/*.mjs',
     ],
-    // Override or add rules here
-    rules: {},
+    rules: {
+      // Permitir la convención `_param` para parámetros intencionalmente
+      // sin uso (típico en handlers que reciben dto/contexto que aún no
+      // se consume en este sprint).
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+        },
+      ],
+    },
   },
 ];

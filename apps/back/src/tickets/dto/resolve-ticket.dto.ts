@@ -1,0 +1,4 @@
+import { resolveTicketSchema } from '@tikora/core';
+import { createZodDto } from 'nestjs-zod';
+
+export class ResolveTicketDto extends createZodDto(resolveTicketSchema) {}
