@@ -2,12 +2,14 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { RequireAuth } from '../components/require-auth';
 import { RequireRole } from '../components/require-role';
 import { LoginPage } from '../features/auth/pages/login-page';
+import { BandejaPage } from '../features/tickets/pages/bandeja-page';
+import { MisTicketsPage } from '../features/tickets/pages/mis-tickets-page';
+import { NuevoTicketPage } from '../features/tickets/pages/nuevo-ticket-page';
+import { TicketDetailPage } from '../features/tickets/pages/ticket-detail-page';
 import { AppShell } from '../layouts/app-shell';
 import { AuthLayout } from '../layouts/auth-layout';
 import { UsuariosPage } from '../pages/admin/usuarios/usuarios-page';
-import { BandejaPage } from '../pages/bandeja/bandeja-page';
 import { HomeRedirect } from '../pages/home-redirect';
-import { MisTicketsPage } from '../pages/mis-tickets/mis-tickets-page';
 
 /**
  * Configuración centralizada de rutas. Cada nueva pantalla se registra
@@ -28,6 +30,8 @@ export const router = createBrowserRouter([
     children: [
       { path: '/', element: <HomeRedirect /> },
       { path: '/mis-tickets', element: <MisTicketsPage /> },
+      { path: '/mis-tickets/nuevo', element: <NuevoTicketPage /> },
+      { path: '/tickets/:id', element: <TicketDetailPage /> },
       {
         path: '/bandeja',
         element: (
