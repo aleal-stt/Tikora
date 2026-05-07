@@ -1,5 +1,5 @@
 import { BullModule } from '@nestjs/bullmq';
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AiClientModule } from '../ai-client/ai-client.module';
@@ -34,7 +34,10 @@ import { ClassificationService } from './services/classification.service';
     MongooseModule.forFeature([{ name: Classification.name, schema: ClassificationSchema }]),
     AiClientModule,
     AreasModule,
-    TicketsModule,
+    // forwardRef bilateral con TicketsModule: el processor consume el
+    // modelo Ticket (vía MongooseModule exportado) y `TicketsService`
+    // encola jobs en esta cola.
+    forwardRef(() => TicketsModule),
     InteractionsModule,
   ],
   providers: [ClassificationService, ClassificationQueueService, ClassificationProcessor],
