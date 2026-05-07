@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const booleanString = z.enum(['true', 'false']).transform((v) => v === 'true');
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3001),
@@ -25,6 +27,28 @@ export const envSchema = z.object({
   SEED_ADMIN_PASSWORD: z.string().min(10),
 
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(4).max(15).default(10),
+
+  // Secretos JWT — generar con `openssl rand -hex 64`. El mínimo de 32 chars
+  // descarta accidentes obvios (secretos por defecto, strings de prueba).
+  JWT_SECRET: z.string().min(32, 'JWT_SECRET debe tener al menos 32 caracteres'),
+  JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET debe tener al menos 32 caracteres'),
+  JWT_ACCESS_EXPIRES_IN: z.string().min(1).default('15m'),
+  JWT_REFRESH_EXPIRES_IN: z.string().min(1).default('7d'),
+
+  COOKIE_SECURE: booleanString.default(false),
+  COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+  COOKIE_DOMAIN: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+
+  LOGIN_MAX_FAILED_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
+
+  THROTTLE_AUTH_TTL_SECONDS: z.coerce.number().int().positive().default(60),
+  THROTTLE_AUTH_LIMIT: z.coerce.number().int().positive().default(10),
+  THROTTLE_DEFAULT_TTL_SECONDS: z.coerce.number().int().positive().default(60),
+  THROTTLE_DEFAULT_LIMIT: z.coerce.number().int().positive().default(120),
 });
 
 export type Env = z.infer<typeof envSchema>;
