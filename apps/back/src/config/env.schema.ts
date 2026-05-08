@@ -86,6 +86,27 @@ export const envSchema = z.object({
   // Por debajo de este umbral, la IA se considera "no segura" y el ticket
   // pasa a `requiere_revision_clasificacion` para que un humano decida.
   UMBRAL_CONFIANZA_CLASIFICACION: z.coerce.number().min(0).max(1).default(0.7),
+
+  // KB y embeddings — el módulo `kb` chunkea documentos, genera embeddings
+  // localmente con Transformers.js y persiste en `kb_chunks` para búsqueda
+  // vectorial vía Atlas Vector Search. Ver `tikora-embeddings.md` §3 y §8.
+  EMBEDDING_MODEL_NAME: z.string().min(1).default('Xenova/multilingual-e5-small'),
+  // Dimensiones del vector que produce el modelo. Cambiar de modelo con
+  // dimensiones distintas requiere recrear el índice vectorial de Atlas.
+  EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(384),
+  // Tamaño del batch al embeber chunks de un documento. 8 es seguro para
+  // CPU; subir a 16 acelera ~2× a costa de RAM. Bajar a 1 desactiva batching.
+  EMBEDDING_BATCH_SIZE: z.coerce.number().int().positive().max(64).default(8),
+  // Cache local del modelo ONNX. En contenedores efímeros conviene montar
+  // un volumen para no re-descargar los ~120 MB en cada deploy.
+  TRANSFORMERS_CACHE: z.string().min(1).default('./.cache/transformers'),
+  // Nombre del índice de Atlas Vector Search sobre `kb_chunks`. Se crea
+  // manualmente desde Atlas UI siguiendo `tikora-setup.md`.
+  MONGODB_VECTOR_INDEX_NAME: z.string().min(1).default('kb_chunks_vector'),
+  // Retención de chunks marcados `active:false` antes de que el cron de
+  // mantenimiento los borre físicamente del índice vectorial. Conservar al
+  // menos 7 días para auditoría de respuestas IA.
+  KB_INACTIVE_CHUNKS_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
 });
 
 export type Env = z.infer<typeof envSchema>;

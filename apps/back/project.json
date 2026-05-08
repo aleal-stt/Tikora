@@ -50,6 +50,13 @@
       "options": {
         "reportsDirectory": "../../coverage/apps/back"
       }
+    },
+    "reindex-kb": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "{workspaceRoot}",
+        "command": "tsx apps/back/src/kb/scripts/reindex-kb.ts"
+      }
     }
   }
 }

@@ -14,6 +14,7 @@ import { Env, validateEnv } from '../config/env.schema';
 import { CountersModule } from '../counters/counters.module';
 import { HealthModule } from '../health/health.module';
 import { InteractionsModule } from '../interactions/interactions.module';
+import { KbModule } from '../kb/kb.module';
 import { MetricsModule } from '../metrics/metrics.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RedisModule } from '../redis/redis.module';
@@ -62,6 +63,7 @@ import { UsersModule } from '../users/users.module';
     AttachmentsModule,
     MetricsModule,
     ClassificationModule,
+    KbModule,
     NotificationsModule,
     AuthModule,
     HealthModule,
