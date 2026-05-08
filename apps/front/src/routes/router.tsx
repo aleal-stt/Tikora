@@ -11,6 +11,7 @@ import { LoginPage } from '../features/auth/pages/login-page';
 import { BandejaPage } from '../features/tickets/pages/bandeja-page';
 import { MisTicketsPage } from '../features/tickets/pages/mis-tickets-page';
 import { NuevoTicketPage } from '../features/tickets/pages/nuevo-ticket-page';
+import { ReopenConfirmPage } from '../features/tickets/pages/reopen-confirm-page';
 import { TicketDetailPage } from '../features/tickets/pages/ticket-detail-page';
 import { AdminLayout } from '../layouts/admin-layout';
 import { AppShell } from '../layouts/app-shell';
@@ -26,7 +27,11 @@ import { HomeRedirect } from '../pages/home-redirect';
 export const router = createBrowserRouter([
   {
     element: <AuthLayout />,
-    children: [{ path: '/login', element: <LoginPage /> }],
+    children: [
+      { path: '/login', element: <LoginPage /> },
+      // Pública — el JWT del query autoriza el reopen, no la sesión.
+      { path: '/reopen-confirm', element: <ReopenConfirmPage /> },
+    ],
   },
   {
     element: (

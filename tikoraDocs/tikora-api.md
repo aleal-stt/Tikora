@@ -272,24 +272,25 @@ Reglas: ver §10 política de contraseñas.
 
 ## 7. Tickets (`/tickets`)
 
-| Método | Path                              | Auth               | Roles                         | Alcance                                                                                          |
-| ------ | --------------------------------- | ------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------ |
-| POST   | `/tickets`                        | Bearer (multipart) | `*`                           | Crea ticket propio.                                                                              |
-| GET    | `/tickets`                        | Bearer             | `AGE` `LID` `ADM`             | AGE: tickets de sus áreas. LID: idem. ADM: todos.                                                |
-| GET    | `/tickets/me`                     | Bearer             | `*`                           | Tickets creados por el caller.                                                                   |
-| GET    | `/tickets/:id`                    | Bearer             | `OWN` `AGE` `LID` `ADM`       | OWN siempre. AGE/LID solo si pertenece al área.                                                  |
-| PATCH  | `/tickets/:id/take`               | Bearer             | `AGE` `LID` `ADM`             | Toma el ticket. Requiere estado `escalado`.                                                      |
-| PATCH  | `/tickets/:id/resolve`            | Bearer             | `AGE` `LID` `ADM`             | Resuelve con nota; cierra el ticket.                                                             |
-| PATCH  | `/tickets/:id/cancel`             | Bearer             | `OWN`                         | Solo si el ticket aún no fue tomado.                                                             |
-| PATCH  | `/tickets/:id/reopen`             | Bearer             | `OWN`                         | Dentro de la ventana de gracia (5 días hábiles).                                                 |
-| PATCH  | `/tickets/:id/assign-agent`       | Bearer             | `AGE` `LID` `ADM`             | Reasignar dentro del área. AGE: solo a otro agente del mismo área.                               |
-| PATCH  | `/tickets/:id/assign-area`        | Bearer             | `LID` `ADM`                   | Reasignar a otra área.                                                                           |
-| PATCH  | `/tickets/:id/classification`     | Bearer             | `LID` `ADM`                   | Corrige manualmente la clasificación cuando el ticket está en `requiere_revision_clasificacion`. |
-| POST   | `/tickets/:id/interactions`       | Bearer             | `OWN` `AGE` `LID` `ADM`       | Agrega nota/mensaje.                                                                             |
-| GET    | `/tickets/:id/interactions`       | Bearer             | `OWN` `AGE` `LID` `ADM`       | Listado cronológico.                                                                             |
-| POST   | `/tickets/:id/attachments`        | Bearer (multipart) | `OWN` `AGE` `LID` `ADM`       | Sube adjunto adicional.                                                                          |
-| DELETE | `/tickets/:id/attachments/:attId` | Bearer             | `OWN` (antes de tomado) `ADM` | Elimina adjunto.                                                                                 |
-| GET    | `/tickets/:id/attachments/:attId` | Bearer             | `OWN` `AGE` `LID` `ADM`       | Descarga el archivo (stream binario).                                                            |
+| Método | Path                              | Auth               | Roles                         | Alcance                                                                                                       |
+| ------ | --------------------------------- | ------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| POST   | `/tickets`                        | Bearer (multipart) | `*`                           | Crea ticket propio.                                                                                           |
+| GET    | `/tickets`                        | Bearer             | `AGE` `LID` `ADM`             | AGE: tickets de sus áreas. LID: idem. ADM: todos.                                                             |
+| GET    | `/tickets/me`                     | Bearer             | `*`                           | Tickets creados por el caller.                                                                                |
+| GET    | `/tickets/:id`                    | Bearer             | `OWN` `AGE` `LID` `ADM`       | OWN siempre. AGE/LID solo si pertenece al área.                                                               |
+| PATCH  | `/tickets/:id/take`               | Bearer             | `AGE` `LID` `ADM`             | Toma el ticket. Requiere estado `escalado`.                                                                   |
+| PATCH  | `/tickets/:id/resolve`            | Bearer             | `AGE` `LID` `ADM`             | Resuelve con nota; cierra el ticket.                                                                          |
+| PATCH  | `/tickets/:id/cancel`             | Bearer             | `OWN`                         | Solo si el ticket aún no fue tomado.                                                                          |
+| PATCH  | `/tickets/:id/reopen`             | Bearer             | `OWN`                         | Dentro de la ventana de gracia (5 días hábiles).                                                              |
+| POST   | `/tickets/:id/reopen-from-email`  | Token JWT en body  | `Public`                      | Botón "Esto no resolvió mi problema" del correo de auto-respuesta. Body `{ token }`. Ver `tikora-ia.md` §7.7. |
+| PATCH  | `/tickets/:id/assign-agent`       | Bearer             | `AGE` `LID` `ADM`             | Reasignar dentro del área. AGE: solo a otro agente del mismo área.                                            |
+| PATCH  | `/tickets/:id/assign-area`        | Bearer             | `LID` `ADM`                   | Reasignar a otra área.                                                                                        |
+| PATCH  | `/tickets/:id/classification`     | Bearer             | `LID` `ADM`                   | Corrige manualmente la clasificación cuando el ticket está en `requiere_revision_clasificacion`.              |
+| POST   | `/tickets/:id/interactions`       | Bearer             | `OWN` `AGE` `LID` `ADM`       | Agrega nota/mensaje.                                                                                          |
+| GET    | `/tickets/:id/interactions`       | Bearer             | `OWN` `AGE` `LID` `ADM`       | Listado cronológico.                                                                                          |
+| POST   | `/tickets/:id/attachments`        | Bearer (multipart) | `OWN` `AGE` `LID` `ADM`       | Sube adjunto adicional.                                                                                       |
+| DELETE | `/tickets/:id/attachments/:attId` | Bearer             | `OWN` (antes de tomado) `ADM` | Elimina adjunto.                                                                                              |
+| GET    | `/tickets/:id/attachments/:attId` | Bearer             | `OWN` `AGE` `LID` `ADM`       | Descarga el archivo (stream binario).                                                                         |
 
 ### 7.1 `POST /tickets`
 

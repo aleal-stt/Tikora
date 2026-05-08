@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AiClientModule } from '../ai-client/ai-client.module';
 import { ClassificationModule } from '../classification/classification.module';
@@ -11,6 +12,7 @@ import { KbModule } from '../kb/kb.module';
 import { TicketsModule } from '../tickets/tickets.module';
 import { UsersModule } from '../users/users.module';
 import { AiResponsesController } from './controllers/ai-responses.controller';
+import { ReopenFromEmailController } from './controllers/reopen-from-email.controller';
 import { AutoResponseEvaluatorListener } from './listeners/auto-response-evaluator.listener';
 import { AutoResponseProcessor } from './processors/auto-response.processor';
 import { AiResponse, AiResponseSchema } from './schemas/ai-response.schema';
@@ -20,6 +22,7 @@ import {
   AutoResponseQueueService,
 } from './services/auto-response-queue.service';
 import { AutoResponseService } from './services/auto-response.service';
+import { EmailReopenTokenService } from './services/email-reopen-token.service';
 
 /**
  * Módulo de auto-respuesta (Fase 2+). Conecta:
@@ -44,6 +47,10 @@ import { AutoResponseService } from './services/auto-response.service';
     }),
     BullModule.registerQueue({ name: AUTO_RESPONSE_QUEUE }),
     MongooseModule.forFeature([{ name: AiResponse.name, schema: AiResponseSchema }]),
+    // JwtModule sin secret default — `EmailReopenTokenService` pasa
+    // `secret` explícito en cada sign/verify, así que evitamos
+    // colisiones con `AuthModule.JwtModule` (otra config global).
+    JwtModule.register({}),
     AiClientModule,
     EmailModule,
     InteractionsModule,
@@ -57,13 +64,14 @@ import { AutoResponseService } from './services/auto-response.service';
     KbModule,
     ClassificationModule,
   ],
-  controllers: [AiResponsesController],
+  controllers: [AiResponsesController, ReopenFromEmailController],
   providers: [
     AutoResponseService,
     AutoResponseGeneratorService,
     AutoResponseQueueService,
     AutoResponseProcessor,
     AutoResponseEvaluatorListener,
+    EmailReopenTokenService,
   ],
 })
 export class AutoResponseModule {}

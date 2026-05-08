@@ -14,6 +14,13 @@ interface AutoResponseEmailParams {
   ticketShortCode: string;
   asunto: string;
   body: string;
+  /**
+   * URL absoluta del botón "Esto no resolvió mi problema" (front
+   * `/reopen-confirm?token=...`). Si está presente, se embed en el HTML
+   * y se incluye al final del texto plano. Null/undefined ⇒ se manda
+   * el correo sin botón (path Fase 2 sin envío autónomo).
+   */
+  reopenLink?: string | null;
 }
 
 @Injectable()
@@ -33,9 +40,60 @@ export class EmailService {
     params: AutoResponseEmailParams,
   ): Promise<{ messageId: string | null }> {
     const subject = `Re: [${params.ticketShortCode}] ${params.asunto}`;
-    const text = `Hola ${params.fullName},\n\n${params.body}\n\nSi necesitás más ayuda, respondé este correo y un agente continuará el caso.\n\n— Equipo Tikora`;
-    const result = await this.deliverer.send({ to: params.to, subject, text });
+    const greeting = `Hola ${params.fullName},`;
+    const closing = 'Si necesitás más ayuda, respondé este correo y un agente continuará el caso.';
+    const sign = '— Equipo Tikora';
+    const reopenNote = params.reopenLink
+      ? `\n\n¿Esto no resolvió tu problema? Reabrí el ticket acá: ${params.reopenLink}`
+      : '';
+    const text = `${greeting}\n\n${params.body}\n\n${closing}${reopenNote}\n\n${sign}`;
+    const html = this.renderAutoResponseHtml({
+      greeting,
+      body: params.body,
+      closing,
+      sign,
+      reopenLink: params.reopenLink ?? null,
+    });
+    const result = await this.deliverer.send({ to: params.to, subject, text, html });
     return { messageId: result.messageId };
+  }
+
+  /**
+   * Render del HTML del correo de auto-respuesta. Estilo simple (inline
+   * styles) que sobrevive a los renderers de Gmail/Outlook sin CSS
+   * externo. Cuando hay `reopenLink`, se incluye un botón destacado al
+   * final con copia "Esto no resolvió mi problema".
+   */
+  private renderAutoResponseHtml(args: {
+    greeting: string;
+    body: string;
+    closing: string;
+    sign: string;
+    reopenLink: string | null;
+  }): string {
+    const escape = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const bodyHtml = escape(args.body).replace(/\n/g, '<br>');
+    const button = args.reopenLink
+      ? `
+      <div style="margin: 24px 0; padding: 16px; border: 1px solid #fde68a; background: #fffbeb; border-radius: 6px;">
+        <p style="margin: 0 0 12px 0; font-size: 14px; color: #92400e;">
+          ¿Esto no resolvió tu problema? Reabrí el ticket en un click.
+        </p>
+        <a href="${escape(args.reopenLink)}"
+           style="display: inline-block; padding: 10px 18px; background: #d97706; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px;">
+          Reabrir ticket
+        </a>
+      </div>`
+      : '';
+    return `<!doctype html>
+<html lang="es"><body style="font-family: -apple-system, system-ui, sans-serif; color: #111827; max-width: 640px; margin: 0 auto; padding: 24px;">
+  <p>${escape(args.greeting)}</p>
+  <p>${bodyHtml}</p>
+  <p style="color: #4b5563;">${escape(args.closing)}</p>
+  ${button}
+  <p style="color: #6b7280; font-size: 12px; margin-top: 24px;">${escape(args.sign)}</p>
+</body></html>`;
   }
 
   async sendWelcomeEmail(

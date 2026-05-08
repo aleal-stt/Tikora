@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import type {
@@ -10,6 +11,7 @@ import type {
 import { Model, Types } from 'mongoose';
 import type { AuthenticatedUser } from '../../auth/types/auth.types';
 import { ApiException } from '../../common/exceptions/api.exception';
+import type { Env } from '../../config/env.schema';
 import { EmailService } from '../../email/services/email.service';
 import { InteractionsService } from '../../interactions/services/interactions.service';
 import { KbSearchService } from '../../kb/services/kb-search.service';
@@ -28,6 +30,7 @@ import {
   AiResponseSentEvent,
 } from '../events/auto-response-events';
 import { AiResponse, AiResponseDocument } from '../schemas/ai-response.schema';
+import { EmailReopenTokenService } from './email-reopen-token.service';
 
 /**
  * Endpoints públicos del módulo `auto-response`. Maneja las decisiones
@@ -60,6 +63,8 @@ export class AutoResponseService {
     private readonly email: EmailService,
     private readonly interactions: InteractionsService,
     private readonly events: EventEmitter2,
+    private readonly reopenTokens: EmailReopenTokenService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   /**
@@ -266,6 +271,11 @@ export class AutoResponseService {
       return false;
     }
 
+    // Token + link del botón "Esto no resolvió mi problema". El front
+    // levanta el path `/reopen-confirm` que valida el token con el back
+    // antes de disparar el reopen.
+    const reopenLink = this.buildReopenLink(ai, ticket);
+
     let messageId: string | null = null;
     try {
       const result = await this.email.sendAutoResponseEmail({
@@ -274,6 +284,7 @@ export class AutoResponseService {
         ticketShortCode: ticket.shortCode,
         asunto: ticket.asunto,
         body: ai.content ?? '',
+        reopenLink,
       });
       messageId = result.messageId;
     } catch (err) {
@@ -345,6 +356,24 @@ export class AutoResponseService {
       nota: ai.content ?? '',
     } satisfies TicketResolvedEvent);
     return true;
+  }
+
+  /**
+   * Construye el link absoluto del botón "Esto no resolvió mi problema"
+   * — `FRONT_BASE_URL` + path `/reopen-confirm` + token JWT firmado.
+   * El payload contiene los IDs y el shortCode para que la página de
+   * confirmación los muestre sin un round-trip extra al back.
+   */
+  private buildReopenLink(ai: AiResponseDocument, ticket: TicketDocument): string {
+    const token = this.reopenTokens.sign({
+      ticketId: ticket._id.toString(),
+      requesterId: ticket.requesterId.toString(),
+      aiResponseId: ai._id.toString(),
+      tenantId: ticket.tenantId.toString(),
+      shortCode: ticket.shortCode,
+    });
+    const base = this.config.get('FRONT_BASE_URL', { infer: true }).replace(/\/$/, '');
+    return `${base}/reopen-confirm?token=${encodeURIComponent(token)}`;
   }
 
   // -------- internos --------

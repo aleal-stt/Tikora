@@ -676,7 +676,18 @@ FRAGMENTOS DE KB (ordenados por relevancia)
 - Cuando se cumpla `respondable === true && confianza ≥ UMBRAL_AUTO_AUTONOMA` y el ticket no sea seleccionado por el sampling de QA (`AUTO_AUTONOMA_SAMPLE_RATE`), la respuesta se envía sin pasar por agente.
 - `AiResponse.estado` salta directamente a `enviada`.
 - El ticket transiciona a `cerrado` con `resolutionType: 'auto'`.
-- El correo al solicitante incluye el botón **"Esto no resolvió mi problema"** que dispara `POST /api/v1/tickets/:id/reopen` con motivo "auto-respuesta insuficiente".
+- El correo al solicitante incluye el botón **"Esto no resolvió mi problema"** que abre `<FRONT_BASE_URL>/reopen-confirm?token=<jwt>` y dispara `POST /api/v1/tickets/:id/reopen-from-email` al confirmar.
+
+#### Botón "Esto no resolvió mi problema"
+
+El botón embed en el HTML del correo es un link al frontend que lleva un JWT firmado con `JWT_REOPEN_SECRET`. Detalles del flujo:
+
+- **Token JWT** (TTL `EMAIL_REOPEN_TOKEN_EXPIRES_IN`, default `5d` = `slaReopenGraceDays`).
+  Payload: `{ ticketId, requesterId, aiResponseId, tenantId, shortCode, iat, exp }`.
+  Secret dedicado (no `JWT_SECRET`) para limitar blast radius si se filtra.
+- **Página intermedia** `/reopen-confirm?token=…` en el front. Decodifica el payload sin verificar firma sólo para mostrar el `shortCode` al solicitante; al confirmar, hace `POST` al back que valida la firma. Esto blinda el caso de que un previewer de email (Gmail/Outlook safelinks) prefetchee el link sin click humano.
+- **Endpoint público** `POST /api/v1/tickets/:id/reopen-from-email` (sin auth). Verifica firma + expiración del JWT, valida que el `:id` del path matchee el `payload.ticketId`, arma un `AuthenticatedUser` virtual con el `requesterId` del token y delega al `TicketsService.reopen()` con motivo fijo "Auto-respuesta insuficiente — reapertura desde correo". Después marca `AiResponse.reopenedAfterAutoResponse = true` (best effort) — métrica clave para evaluar la calidad de Fase 3.
+- **No es single-use** (no almacenamos `jti` consumidos). El reopen es idempotente vía la state machine: la segunda invocación sobre un ticket ya reabierto devuelve `409 TICKET_TRANSITION_INVALID`.
 
 ### 7.8 Trazabilidad
 

@@ -56,6 +56,19 @@ export const envSchema = z.object({
   EMAIL_DELIVERY_MODE: z.enum(['log', 'live']).default('log'),
   EMAIL_FROM: z.string().min(1).default('Tikora <noreply@empresa.com>'),
 
+  // URL base del frontend — la usamos para construir links del correo
+  // (botón "Esto no resolvió mi problema" → `/reopen-confirm?token=…`).
+  FRONT_BASE_URL: z.string().url().default('http://localhost:5173'),
+
+  // Secret y TTL del token de reapertura desde correo. Token JWT
+  // firmado, embed en el botón del email auto-respuesta. Ver
+  // `tikora-ia.md` §7.7. Mismo nivel de seguridad que JWT_SECRET.
+  JWT_REOPEN_SECRET: z.string().min(32, 'JWT_REOPEN_SECRET debe tener al menos 32 caracteres'),
+  // El default coincide con `slaReopenGraceDays` (5) — pasado ese
+  // plazo el cron de SLA cierra el ticket definitivamente y el token
+  // no tendría sentido aceptarlo.
+  EMAIL_REOPEN_TOKEN_EXPIRES_IN: z.string().min(1).default('5d'),
+
   // SMTP — solo se usa cuando EMAIL_DELIVERY_MODE=live. En dev quedan
   // vacías y el deliverer SMTP no se instancia. Defaults apuntan al
   // submission de Gmail (TLS por STARTTLS en 587).

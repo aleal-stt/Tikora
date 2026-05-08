@@ -143,6 +143,16 @@ function buildHarness(
     appendSystemEvent: vi.fn().mockResolvedValue({}),
   };
   const events = { emit: vi.fn() };
+  const reopenTokens = {
+    sign: vi.fn().mockReturnValue('mocked-jwt-token'),
+    verify: vi.fn(),
+  };
+  const config = {
+    get: vi.fn((key: string) => {
+      if (key === 'FRONT_BASE_URL') return 'http://localhost:5173';
+      return undefined;
+    }),
+  };
 
   const service = new AutoResponseService(
     aiResponseModel as unknown as ConstructorParameters<typeof AutoResponseService>[0],
@@ -153,8 +163,10 @@ function buildHarness(
     email as unknown as ConstructorParameters<typeof AutoResponseService>[5],
     interactions as unknown as ConstructorParameters<typeof AutoResponseService>[6],
     events as unknown as ConstructorParameters<typeof AutoResponseService>[7],
+    reopenTokens as unknown as ConstructorParameters<typeof AutoResponseService>[8],
+    config as unknown as ConstructorParameters<typeof AutoResponseService>[9],
   );
-  return { service, email, events, interactions, aiResponseModel, ticketModel };
+  return { service, email, events, interactions, aiResponseModel, ticketModel, reopenTokens };
 }
 
 describe('AutoResponseService', () => {
