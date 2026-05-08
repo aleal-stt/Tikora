@@ -128,6 +128,21 @@ export const envSchema = z.object({
   // el budget de tokens y/o disparan errores 400 del proveedor.
   MAX_TICKET_BODY_TOKENS: z.coerce.number().int().positive().default(4000),
 
+  // SLA — cron periódico que detecta tickets próximos a vencer, vencidos
+  // y aplica el cierre definitivo tras `slaAutoCloseDays` (config del
+  // tenant) sin actividad. Default 5 min — el cron es relativamente
+  // barato (queries indexadas + writes solo sobre tickets que cambian).
+  // Bajar a 1 min para tests; subir si la flota de tickets crece mucho.
+  SLA_CRON_INTERVAL_MS: z.coerce.number().int().positive().default(300_000),
+  // Umbral de "próximo a vencer" como fracción del SLA total.
+  // 0.25 = se notifica cuando queda ≤ 25 % del tiempo. Una sola vez por
+  // ticket; el ticket queda flag-eado tras la primera notificación.
+  SLA_APPROACHING_THRESHOLD_PERCENT: z.coerce.number().min(0).max(1).default(0.25),
+  // Tope de tickets procesados por corrida del cron. Evita que un tenant
+  // con backlog masivo monopolice un tick. Lo que no entró se procesa en
+  // la próxima corrida.
+  SLA_BATCH_SIZE: z.coerce.number().int().positive().default(200),
+
   // KB y embeddings — el módulo `kb` chunkea documentos, genera embeddings
   // localmente con Transformers.js y persiste en `kb_chunks` para búsqueda
   // vectorial vía Atlas Vector Search. Ver `tikora-embeddings.md` §3 y §8.

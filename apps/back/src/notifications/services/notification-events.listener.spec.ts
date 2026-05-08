@@ -255,4 +255,98 @@ describe('NotificationEventsListener', () => {
     expect(inputs[0].recipientId.toString()).toBe(adminId.toString());
     expect(inputs[0].type).toBe('AiResponseFailed');
   });
+
+  it('SlaApproaching con agente asignado → notifica solo al agente', async () => {
+    const { listener, notifications } = buildHarness();
+    const agentId = new Types.ObjectId().toString();
+
+    await listener.onSlaApproaching({
+      tenantId: TENANT_ID.toString(),
+      ticketId: new Types.ObjectId().toString(),
+      agentId,
+      areaId: new Types.ObjectId().toString(),
+      prioridad: 'alta',
+      slaDeadline: '2026-05-09T10:00:00Z',
+      remainingMinutes: 30,
+    });
+
+    const inputs = notifications.createMany.mock.calls[0]?.[0] as Array<{
+      recipientId: Types.ObjectId;
+      type: string;
+    }>;
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].type).toBe('SlaApproaching');
+    expect(inputs[0].recipientId.toString()).toBe(agentId);
+  });
+
+  it('SlaApproaching sin agente → notifica al equipo del área (líderes + agentes)', async () => {
+    const areaId = new Types.ObjectId();
+    const leader = new Types.ObjectId();
+    const agent = new Types.ObjectId();
+    const { listener, notifications } = buildHarness({
+      area: { _id: areaId, agentIds: [agent], leaderIds: [leader] },
+    });
+
+    await listener.onSlaApproaching({
+      tenantId: TENANT_ID.toString(),
+      ticketId: new Types.ObjectId().toString(),
+      agentId: null,
+      areaId: areaId.toString(),
+      prioridad: 'media',
+      slaDeadline: '2026-05-09T10:00:00Z',
+      remainingMinutes: 60,
+    });
+
+    const inputs = notifications.createMany.mock.calls[0]?.[0] as Array<{
+      recipientId: Types.ObjectId;
+    }>;
+    const ids = new Set(inputs.map((i) => i.recipientId.toString()));
+    expect(ids).toEqual(new Set([leader.toString(), agent.toString()]));
+  });
+
+  it('SlaBreach → notifica a los líderes provistos en el evento', async () => {
+    const { listener, notifications } = buildHarness();
+    const leader1 = new Types.ObjectId().toString();
+    const leader2 = new Types.ObjectId().toString();
+
+    await listener.onSlaBreach({
+      tenantId: TENANT_ID.toString(),
+      ticketId: new Types.ObjectId().toString(),
+      agentId: null,
+      areaId: new Types.ObjectId().toString(),
+      leaderIds: [leader1, leader2],
+      prioridad: 'alta',
+      slaDeadline: '2026-05-09T10:00:00Z',
+      overdueMinutes: 90,
+    });
+
+    const inputs = notifications.createMany.mock.calls[0]?.[0] as Array<{
+      recipientId: Types.ObjectId;
+      type: string;
+    }>;
+    expect(inputs.map((i) => i.recipientId.toString()).sort()).toEqual([leader1, leader2].sort());
+    expect(inputs[0].type).toBe('SlaBreach');
+  });
+
+  it('SlaBreach sin líderes en el área → cae a admins', async () => {
+    const adminId = new Types.ObjectId();
+    const { listener, notifications, userModel } = buildHarness({ admins: [adminId] });
+
+    await listener.onSlaBreach({
+      tenantId: TENANT_ID.toString(),
+      ticketId: new Types.ObjectId().toString(),
+      agentId: null,
+      areaId: new Types.ObjectId().toString(),
+      leaderIds: [],
+      prioridad: 'alta',
+      slaDeadline: '2026-05-09T10:00:00Z',
+      overdueMinutes: 30,
+    });
+
+    expect(userModel.find).toHaveBeenCalled();
+    const inputs = notifications.createMany.mock.calls[0]?.[0] as Array<{
+      recipientId: Types.ObjectId;
+    }>;
+    expect(inputs[0].recipientId.toString()).toBe(adminId.toString());
+  });
 });

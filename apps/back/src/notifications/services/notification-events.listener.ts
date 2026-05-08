@@ -10,6 +10,8 @@ import {
   AiResponseSuggestedEvent,
   InteractionAddedEvent,
   NOTIFICATION_EVENTS,
+  SlaApproachingEvent,
+  SlaBreachEvent,
   TicketAssignedEvent,
   TicketClassifiedEvent,
   TicketCreatedEvent,
@@ -173,6 +175,51 @@ export class NotificationEventsListener {
       tenantId: event.tenantId,
       ticketId: event.ticketId,
       payload: { reason: event.reason, detail: event.detail },
+      recipientIds: recipients,
+    });
+  }
+
+  @OnEvent(NOTIFICATION_EVENTS.SlaApproaching)
+  async onSlaApproaching(event: SlaApproachingEvent): Promise<void> {
+    // Si hay agente asignado, va sólo a él; si nadie tomó el ticket, al
+    // equipo del área (líderes + agentes). No spameamos al líder cuando
+    // ya hay agente asignado — ese caso lo cubre el `SlaBreach`.
+    const recipients = event.agentId
+      ? [event.agentId]
+      : await this.resolveAreaTeam(event.tenantId, event.areaId);
+    if (recipients.length === 0) return;
+    await this.notify({
+      type: 'SlaApproaching',
+      tenantId: event.tenantId,
+      ticketId: event.ticketId,
+      payload: {
+        areaId: event.areaId,
+        prioridad: event.prioridad,
+        slaDeadline: event.slaDeadline,
+        remainingMinutes: event.remainingMinutes,
+      },
+      recipientIds: recipients,
+    });
+  }
+
+  @OnEvent(NOTIFICATION_EVENTS.SlaBreach)
+  async onSlaBreach(event: SlaBreachEvent): Promise<void> {
+    // Vencido → líderes del área (responsables del SLA). Si el área no
+    // tiene líderes, caemos a admins para que la falla no quede silenciosa.
+    const recipients =
+      event.leaderIds.length > 0 ? event.leaderIds : await this.resolveAdmins(event.tenantId);
+    if (recipients.length === 0) return;
+    await this.notify({
+      type: 'SlaBreach',
+      tenantId: event.tenantId,
+      ticketId: event.ticketId,
+      payload: {
+        areaId: event.areaId,
+        agentId: event.agentId,
+        prioridad: event.prioridad,
+        slaDeadline: event.slaDeadline,
+        overdueMinutes: event.overdueMinutes,
+      },
       recipientIds: recipients,
     });
   }

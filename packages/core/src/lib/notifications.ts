@@ -12,6 +12,7 @@ export const notificationEventTypeSchema = z.enum([
   'TicketAssigned',
   'TicketResolved',
   'TicketReopened',
+  'TicketClosedDefinitively',
   'InteractionAdded',
   // Auto-respuesta (Fase 2+). Cada uno notifica:
   // - Suggested: agentes del área para que aprueben/editen/descarten.
@@ -23,6 +24,10 @@ export const notificationEventTypeSchema = z.enum([
   'AiResponseSent',
   'AiResponseDiscarded',
   'AiResponseFailed',
+  // SLA — emitidos por el cron del módulo `sla`. Approaching → agente
+  // asignado del ticket; Breach → líderes del área.
+  'SlaApproaching',
+  'SlaBreach',
 ]);
 export type NotificationEventType = z.infer<typeof notificationEventTypeSchema>;
 

@@ -5,7 +5,7 @@ import {
 } from './notifications';
 
 describe('notifications contracts', () => {
-  it('lista cerrada de event types incluye los de Sprint 9 + auto-respuesta', () => {
+  it('lista cerrada de event types incluye los de Sprint 9 + auto-respuesta + SLA', () => {
     [
       'TicketCreated',
       'TicketClassified',
@@ -13,12 +13,15 @@ describe('notifications contracts', () => {
       'TicketAssigned',
       'TicketResolved',
       'TicketReopened',
+      'TicketClosedDefinitively',
       'InteractionAdded',
       'AiResponseSuggested',
       'AiResponseApproved',
       'AiResponseSent',
       'AiResponseDiscarded',
       'AiResponseFailed',
+      'SlaApproaching',
+      'SlaBreach',
     ].forEach((t) => {
       expect(notificationEventTypeSchema.safeParse(t).success).toBe(true);
     });

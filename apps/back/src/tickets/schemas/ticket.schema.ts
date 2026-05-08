@@ -97,6 +97,16 @@ export class Ticket {
   @Prop({ type: Date, default: null })
   closedDefinitivelyAt!: Date | null;
 
+  // Marcas one-shot para el cron de SLA. Cada uno se setea la primera vez
+  // que el ticket cruza el umbral correspondiente — así el cron no vuelve
+  // a notificar lo mismo en cada tick. Si el deadline se modifica
+  // (reasignación con cambio de prioridad), se resetean a null.
+  @Prop({ type: Date, default: null })
+  slaApproachingNotifiedAt!: Date | null;
+
+  @Prop({ type: Date, default: null })
+  slaBreachNotifiedAt!: Date | null;
+
   @Prop({ type: Types.ObjectId, default: null })
   classificationFeedbackId!: Types.ObjectId | null;
 

@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AreasModule } from '../areas/areas.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
@@ -20,6 +21,7 @@ import { MetricsModule } from '../metrics/metrics.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RedisModule } from '../redis/redis.module';
 import { SeedModule } from '../seed/seed.module';
+import { SlaModule } from '../sla/sla.module';
 import { SseTicketsModule } from '../sse-tickets/sse-tickets.module';
 import { TenantsModule } from '../tenants/tenants.module';
 import { TicketsModule } from '../tickets/tickets.module';
@@ -53,6 +55,9 @@ import { UsersModule } from '../users/users.module';
     // tickets/classification/interactions emiten. Single-instance — al
     // escalar se cambia por Redis pubsub sin tocar a los emisores.
     EventEmitterModule.forRoot(),
+    // ScheduleModule global — habilita @nestjs/schedule para todos los
+    // módulos. SlaModule registra su intervalo en `onApplicationBootstrap`.
+    ScheduleModule.forRoot(),
     RedisModule,
     SseTicketsModule,
     TenantsModule,
@@ -70,6 +75,7 @@ import { UsersModule } from '../users/users.module';
     AuthModule,
     HealthModule,
     SeedModule,
+    SlaModule,
   ],
   providers: [
     // Orden importa: Throttler primero corta abuso antes de gastar CPU

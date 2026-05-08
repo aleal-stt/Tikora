@@ -289,13 +289,13 @@ La clasificación de tickets, generación de auto-respuesta, generación de embe
 
 **Colas principales:**
 
-| Cola             | Job                                         | Trigger                                                                 |
-| ---------------- | ------------------------------------------- | ----------------------------------------------------------------------- |
-| `classification` | Clasificar ticket con Claude Haiku          | Al crear ticket                                                         |
-| `auto-response`  | Generar respuesta vía RAG con Claude Sonnet | Cuando un ticket clasificado cumple las 3 condiciones de auto-respuesta |
-| `embeddings`     | Generar embeddings de chunks de KB          | Al cargar/editar documento de KB                                        |
-| `email`          | Enviar correo transaccional                 | Eventos de notificación                                                 |
-| `sla-check`      | Cron periódico de chequeo de SLAs           | Cada 5 minutos                                                          |
+| Cola             | Job                                         | Trigger                                                                          |
+| ---------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
+| `classification` | Clasificar ticket con Claude Haiku          | Al crear ticket                                                                  |
+| `auto-response`  | Generar respuesta vía RAG con Claude Sonnet | Cuando un ticket clasificado cumple las 3 condiciones de auto-respuesta          |
+| `embeddings`     | Generar embeddings de chunks de KB          | Al cargar/editar documento de KB                                                 |
+| `email`          | Enviar correo transaccional                 | Eventos de notificación                                                          |
+| `sla-check`      | Cron periódico de chequeo de SLAs           | Cada `SLA_CRON_INTERVAL_MS` (default 5 min, módulo `sla` con `@nestjs/schedule`) |
 
 **Cliente Anthropic (`AiClientService`):**
 

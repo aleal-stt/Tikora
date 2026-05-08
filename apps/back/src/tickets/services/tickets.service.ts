@@ -428,6 +428,17 @@ export class TicketsService {
       );
     }
 
+    if (ticket.closedDefinitivelyAt) {
+      // El cron de SLA marcó el ticket como cierre definitivo tras
+      // `slaAutoCloseDays` sin actividad. La gracia ya expiró por el
+      // path lento; este check es la versión rápida y explícita.
+      throw new ApiException(
+        HttpStatus.CONFLICT,
+        'TICKET_REOPEN_GRACE_EXPIRED',
+        'El ticket fue cerrado definitivamente y no admite reapertura.',
+      );
+    }
+
     if (!ticket.resolvedAt) {
       throw new ApiException(
         HttpStatus.CONFLICT,
@@ -611,6 +622,10 @@ export class TicketsService {
     ticket.assignedAgentId = null;
     if (ticket.prioridad) {
       ticket.slaDeadline = calculateSlaDeadline(ticket.prioridad, targetArea.slas);
+      // El nuevo deadline reabre la ventana de alertas SLA — el cron debe
+      // volver a notificar approaching/breach contra el plazo nuevo.
+      ticket.slaApproachingNotifiedAt = null;
+      ticket.slaBreachNotifiedAt = null;
     }
     await ticket.save();
 
@@ -674,6 +689,10 @@ export class TicketsService {
     ticket.areaId = targetArea._id;
     ticket.prioridad = input.prioridad;
     ticket.slaDeadline = calculateSlaDeadline(input.prioridad, targetArea.slas);
+    // Primera asignación de deadline — los flags ya son null pero los
+    // dejamos explícitos para que el cron los lea correctamente.
+    ticket.slaApproachingNotifiedAt = null;
+    ticket.slaBreachNotifiedAt = null;
     await ticket.save();
 
     await this.emitSystem({
