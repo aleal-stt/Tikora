@@ -78,3 +78,41 @@ export interface InteractionAddedEvent extends BaseEvent {
   /** Pre-resueltos por el productor para que el listener no necesite mirar la DB. */
   participantIds: string[];
 }
+
+// -------- auto-respuesta (Fase 2+) --------
+//
+// Las constantes están en `NOTIFICATION_EVENTS` arriba; las interfaces
+// viven acá para mantener un único catálogo del shape de cada evento del
+// bus, igual que hacen los eventos de tickets. El módulo `auto-response`
+// los importa para emitir; este listener los importa para suscribirse.
+
+export interface AiResponseSuggestedEvent extends BaseEvent {
+  aiResponseId: string;
+  /** Área del ticket — el listener resuelve a quién notificar. */
+  areaId: string;
+  confianza: number;
+}
+
+export interface AiResponseApprovedEvent extends BaseEvent {
+  aiResponseId: string;
+  approvedBy: string;
+  edited: boolean;
+}
+
+export interface AiResponseSentEvent extends BaseEvent {
+  aiResponseId: string;
+  /** Solicitante del ticket — para notificar el cierre. */
+  requesterId: string;
+  emailMessageId: string | null;
+}
+
+export interface AiResponseDiscardedEvent extends BaseEvent {
+  aiResponseId: string;
+  discardedBy: string;
+  motivo: string;
+}
+
+export interface AiResponseFailedEvent extends BaseEvent {
+  reason: 'no_kb_match' | 'not_respondable' | 'api_error' | 'validation_error';
+  detail: string | null;
+}

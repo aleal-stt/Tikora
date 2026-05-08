@@ -188,4 +188,71 @@ describe('NotificationEventsListener', () => {
     }>;
     expect(inputs[0].recipientId.toString()).toBe(adminId.toString());
   });
+
+  it('AiResponseSuggested → notifica a líderes y agentes del área', async () => {
+    const leaderId = new Types.ObjectId();
+    const agentA = new Types.ObjectId();
+    const agentB = new Types.ObjectId();
+    const area: FakeArea = {
+      _id: new Types.ObjectId(),
+      leaderIds: [leaderId],
+      agentIds: [agentA, agentB],
+    };
+    const { listener, notifications, sseHub } = buildHarness({ area });
+
+    await listener.onAiResponseSuggested({
+      tenantId: TENANT_ID.toString(),
+      ticketId: new Types.ObjectId().toString(),
+      aiResponseId: new Types.ObjectId().toString(),
+      areaId: area._id.toString(),
+      confianza: 0.92,
+    });
+
+    const inputs = notifications.createMany.mock.calls[0]?.[0] as Array<{
+      recipientId: Types.ObjectId;
+      type: string;
+    }>;
+    const recipients = new Set(inputs.map((i) => i.recipientId.toString()));
+    expect(recipients).toEqual(
+      new Set([leaderId.toString(), agentA.toString(), agentB.toString()]),
+    );
+    expect(inputs[0].type).toBe('AiResponseSuggested');
+    // Push SSE para cada destinatario.
+    expect(sseHub.push).toHaveBeenCalledTimes(3);
+  });
+
+  it('AiResponseFailed con reason=no_kb_match NO notifica (escalada normal)', async () => {
+    const adminId = new Types.ObjectId();
+    const { listener, notifications, userModel } = buildHarness({ admins: [adminId] });
+
+    await listener.onAiResponseFailed({
+      tenantId: TENANT_ID.toString(),
+      ticketId: new Types.ObjectId().toString(),
+      reason: 'no_kb_match',
+      detail: null,
+    });
+
+    expect(userModel.find).not.toHaveBeenCalled();
+    expect(notifications.createMany).not.toHaveBeenCalled();
+  });
+
+  it('AiResponseFailed con reason=api_error notifica a admins', async () => {
+    const adminId = new Types.ObjectId();
+    const { listener, notifications, userModel } = buildHarness({ admins: [adminId] });
+
+    await listener.onAiResponseFailed({
+      tenantId: TENANT_ID.toString(),
+      ticketId: new Types.ObjectId().toString(),
+      reason: 'api_error',
+      detail: 'Anthropic 503',
+    });
+
+    expect(userModel.find).toHaveBeenCalled();
+    const inputs = notifications.createMany.mock.calls[0]?.[0] as Array<{
+      recipientId: Types.ObjectId;
+      type: string;
+    }>;
+    expect(inputs[0].recipientId.toString()).toBe(adminId.toString());
+    expect(inputs[0].type).toBe('AiResponseFailed');
+  });
 });

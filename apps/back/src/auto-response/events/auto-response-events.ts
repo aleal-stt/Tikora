@@ -1,56 +1,37 @@
-import type { AiResponseEventType } from '@tikora/core';
+import { NOTIFICATION_EVENTS } from '../../notifications/events/notification-events';
 
 /**
- * Catálogo de eventos del módulo `auto-response`. Match con
- * `tikora-events.md` §3.4. Los eventos `Suggested`/`Approved`/`Sent`/
- * `Discarded`/`Failed` están además en `notificationEventTypeSchema`
- * porque disparan notificación al usuario.
+ * Alias del subset de `NOTIFICATION_EVENTS` que pertenecen al dominio de
+ * auto-respuesta. Las constantes apuntan al mismo string de evento del
+ * bus — usar este alias dentro del módulo deja el código auto-explicativo
+ * sin duplicar el catálogo.
+ *
+ * Las **interfaces** de cada evento (`AiResponseSuggestedEvent`, etc.)
+ * viven en `notifications/events/notification-events.ts` junto a las del
+ * resto del bus para que los suscriptores (listener de notifications,
+ * métricas, SSE) compartan un único shape.
  */
 export const AUTO_RESPONSE_EVENTS = {
   AiResponseGenerationRequested: 'AiResponseGenerationRequested',
-  AiResponseSuggested: 'AiResponseSuggested',
-  AiResponseApproved: 'AiResponseApproved',
-  AiResponseSent: 'AiResponseSent',
-  AiResponseDiscarded: 'AiResponseDiscarded',
-  AiResponseFailed: 'AiResponseFailed',
-} as const satisfies Record<AiResponseEventType, AiResponseEventType>;
+  AiResponseSuggested: NOTIFICATION_EVENTS.AiResponseSuggested,
+  AiResponseApproved: NOTIFICATION_EVENTS.AiResponseApproved,
+  AiResponseSent: NOTIFICATION_EVENTS.AiResponseSent,
+  AiResponseDiscarded: NOTIFICATION_EVENTS.AiResponseDiscarded,
+  AiResponseFailed: NOTIFICATION_EVENTS.AiResponseFailed,
+} as const;
 
-interface BaseAutoResponseEvent {
+export interface AiResponseGenerationRequestedEvent {
   tenantId: string;
   ticketId: string;
-}
-
-export interface AiResponseGenerationRequestedEvent extends BaseAutoResponseEvent {
   classificationId: string;
 }
 
-export interface AiResponseSuggestedEvent extends BaseAutoResponseEvent {
-  aiResponseId: string;
-  /** Área del ticket — el listener lo usa para resolver agentes/líder a notificar. */
-  areaId: string;
-  confianza: number;
-}
-
-export interface AiResponseApprovedEvent extends BaseAutoResponseEvent {
-  aiResponseId: string;
-  approvedBy: string;
-  edited: boolean;
-}
-
-export interface AiResponseSentEvent extends BaseAutoResponseEvent {
-  aiResponseId: string;
-  /** Solicitante del ticket — para notificar el cierre. */
-  requesterId: string;
-  emailMessageId: string | null;
-}
-
-export interface AiResponseDiscardedEvent extends BaseAutoResponseEvent {
-  aiResponseId: string;
-  discardedBy: string;
-  motivo: string;
-}
-
-export interface AiResponseFailedEvent extends BaseAutoResponseEvent {
-  reason: 'no_kb_match' | 'not_respondable' | 'api_error' | 'validation_error';
-  detail: string | null;
-}
+// Re-export de las interfaces del catálogo central — los servicios del
+// módulo importan desde acá por proximidad semántica.
+export type {
+  AiResponseSuggestedEvent,
+  AiResponseApprovedEvent,
+  AiResponseSentEvent,
+  AiResponseDiscardedEvent,
+  AiResponseFailedEvent,
+} from '../../notifications/events/notification-events';

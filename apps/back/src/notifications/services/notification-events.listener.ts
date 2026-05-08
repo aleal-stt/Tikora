@@ -6,6 +6,8 @@ import { Model, Types } from 'mongoose';
 import { Area, AreaDocument } from '../../areas/schemas/area.schema';
 import { User, UserDocument } from '../../users/schemas/user.schema';
 import {
+  AiResponseFailedEvent,
+  AiResponseSuggestedEvent,
   InteractionAddedEvent,
   NOTIFICATION_EVENTS,
   TicketAssignedEvent,
@@ -134,6 +136,47 @@ export class NotificationEventsListener {
     });
   }
 
+  @OnEvent(NOTIFICATION_EVENTS.AiResponseSuggested)
+  async onAiResponseSuggested(event: AiResponseSuggestedEvent): Promise<void> {
+    // Notifica a líderes y agentes del área para que abran el panel de
+    // "Sugerencia IA" del ticket. El líder se entera siempre porque es
+    // el responsable de la calidad del flujo; los agentes para que
+    // cualquiera del área pueda tomar la aprobación.
+    const recipients = await this.resolveAreaTeam(event.tenantId, event.areaId);
+    if (recipients.length === 0) return;
+    await this.notify({
+      type: 'AiResponseSuggested',
+      tenantId: event.tenantId,
+      ticketId: event.ticketId,
+      payload: {
+        aiResponseId: event.aiResponseId,
+        areaId: event.areaId,
+        confianza: event.confianza,
+      },
+      recipientIds: recipients,
+    });
+  }
+
+  @OnEvent(NOTIFICATION_EVENTS.AiResponseFailed)
+  async onAiResponseFailed(event: AiResponseFailedEvent): Promise<void> {
+    // Errores duros (`api_error`, `validation_error`) van al admin como
+    // alarma. `no_kb_match` y `not_respondable` son resultados normales
+    // del flujo (la KB no cubre el caso) — no spamean al admin: el
+    // ticket simplemente sigue su curso de escalada manual.
+    if (event.reason === 'no_kb_match' || event.reason === 'not_respondable') {
+      return;
+    }
+    const recipients = await this.resolveAdmins(event.tenantId);
+    if (recipients.length === 0) return;
+    await this.notify({
+      type: 'AiResponseFailed',
+      tenantId: event.tenantId,
+      ticketId: event.ticketId,
+      payload: { reason: event.reason, detail: event.detail },
+      recipientIds: recipients,
+    });
+  }
+
   @OnEvent(NOTIFICATION_EVENTS.InteractionAdded)
   async onInteractionAdded(event: InteractionAddedEvent): Promise<void> {
     // El productor pasa la lista de participantes ya filtrada (excluyendo
@@ -165,6 +208,17 @@ export class NotificationEventsListener {
       .exec();
     if (!area) return [];
     return area.agentIds.map((id) => id.toString());
+  }
+
+  private async resolveAreaTeam(tenantId: string, areaId: string): Promise<string[]> {
+    const area = await this.areaModel
+      .findOne({
+        _id: this.toObjectIdOrNull(areaId),
+        tenantId: new Types.ObjectId(tenantId),
+      })
+      .exec();
+    if (!area) return [];
+    return [...area.leaderIds, ...area.agentIds].map((id) => id.toString());
   }
 
   private async resolveAreaLeaders(tenantId: string, areaId: string): Promise<string[]> {
