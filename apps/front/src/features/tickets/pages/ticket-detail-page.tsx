@@ -129,10 +129,21 @@ export function TicketDetailPage() {
           ticket.estado === 'en_progreso' &&
           (ticket.assignedAgentId === me?.id || me?.role === 'lider' || isAdmin)
         }
+        resolvedAt={ticket.resolvedAt}
+        closedDefinitivelyAt={ticket.closedDefinitivelyAt}
       />
     </div>
   );
 }
+
+// Días de gracia para reabrir un ticket cerrado, alineado con
+// `SLA_REOPEN_GRACE_DAYS` del back (default 5). Cron de SLA marca
+// `closedDefinitivelyAt` al pasar este plazo; el front replica la
+// regla para esconder el botón antes de la marca y evitar el 409.
+// TODO: exponer este valor desde la config del tenant cuando exista
+// el endpoint de settings públicos.
+const REOPEN_GRACE_DAYS = 5;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 interface ActionsPanelProps {
   ticketId: string;
@@ -140,6 +151,8 @@ interface ActionsPanelProps {
   isOwner: boolean;
   operatesOnArea: boolean;
   canResolve: boolean;
+  resolvedAt: string | null;
+  closedDefinitivelyAt: string | null;
 }
 
 function ActionsPanel({
@@ -148,12 +161,16 @@ function ActionsPanel({
   isOwner,
   operatesOnArea,
   canResolve,
+  resolvedAt,
+  closedDefinitivelyAt,
 }: ActionsPanelProps) {
   const [interactionContent, setInteractionContent] = useState('');
   const [resolveOpen, setResolveOpen] = useState(false);
   const [resolveNota, setResolveNota] = useState('');
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelMotivo, setCancelMotivo] = useState('');
+  const [reopenOpen, setReopenOpen] = useState(false);
+  const [reopenMotivo, setReopenMotivo] = useState('');
 
   const take = useTakeTicket(ticketId);
   const resolve = useResolveTicket(ticketId);
@@ -161,9 +178,14 @@ function ActionsPanel({
   const reopen = useReopenTicket(ticketId);
   const addInteraction = useAddInteraction(ticketId);
 
+  const isDefinitivelyClosed =
+    closedDefinitivelyAt !== null ||
+    (resolvedAt !== null &&
+      Date.now() - new Date(resolvedAt).getTime() > REOPEN_GRACE_DAYS * MS_PER_DAY);
+
   const canTake = operatesOnArea && estado === 'escalado';
   const canCancel = isOwner && PRE_TAKEN_STATES.has(estado);
-  const canReopen = isOwner && estado === 'cerrado';
+  const canReopen = isOwner && estado === 'cerrado' && !isDefinitivelyClosed;
   const canAddInteraction = (isOwner && estado !== 'cancelado') || operatesOnArea;
 
   const interactionType = isOwner && !operatesOnArea ? 'usuario' : 'agente';
@@ -236,22 +258,18 @@ function ActionsPanel({
             </Button>
           )}
           {canReopen && (
-            <Button
-              variant="secondary"
-              onClick={async () => {
-                try {
-                  await reopen.mutateAsync({ motivo: 'Reapertura por solicitante' });
-                  toast.success('Ticket reabierto.');
-                } catch (err) {
-                  toast.error(err instanceof ApiError ? err.message : 'No pudimos reabrir.');
-                }
-              }}
-              disabled={reopen.isPending}
-            >
-              {reopen.isPending ? 'Reabriendo…' : 'Reabrir'}
+            <Button variant="secondary" onClick={() => setReopenOpen((v) => !v)}>
+              Reabrir
             </Button>
           )}
         </div>
+
+        {isOwner && estado === 'cerrado' && isDefinitivelyClosed && (
+          <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            Pasaron más de {REOPEN_GRACE_DAYS} días desde el cierre, así que ya no podés reabrir
+            este ticket. Si necesitás continuar, abrí uno nuevo.
+          </p>
+        )}
 
         {resolveOpen && (
           <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
@@ -319,6 +337,42 @@ function ActionsPanel({
                 }}
               >
                 {cancel.isPending ? 'Cancelando…' : 'Confirmar cancelación'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {reopenOpen && (
+          <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm font-medium text-slate-700">Motivo de la reapertura</p>
+            <p className="text-xs text-slate-500">
+              Contanos por qué necesitás retomar este ticket — el área asignada lo verá.
+            </p>
+            <Textarea
+              rows={2}
+              value={reopenMotivo}
+              onChange={(e) => setReopenMotivo(e.target.value)}
+              placeholder="Ej.: la solución no funcionó tras el reinicio."
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setReopenOpen(false)}>
+                Volver
+              </Button>
+              <Button
+                size="sm"
+                disabled={!reopenMotivo.trim() || reopen.isPending}
+                onClick={async () => {
+                  try {
+                    await reopen.mutateAsync({ motivo: reopenMotivo });
+                    setReopenOpen(false);
+                    setReopenMotivo('');
+                    toast.success('Ticket reabierto.');
+                  } catch (err) {
+                    toast.error(err instanceof ApiError ? err.message : 'No pudimos reabrir.');
+                  }
+                }}
+              >
+                {reopen.isPending ? 'Reabriendo…' : 'Confirmar reapertura'}
               </Button>
             </div>
           </div>
