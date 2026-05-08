@@ -504,6 +504,28 @@ Fase 3: si confianza_respuesta ≥ UMBRAL_AUTO_AUTONOMA → enviar correo y cerr
         si no → notificar al agente para aprobación (red de seguridad)
 ```
 
+#### Auto-envío Fase 3
+
+Apenas el processor persiste la `AiResponse` con `respondable: true` y
+`AI_PHASE === 3`, evalúa el auto-envío en `tryAutonomousDelivery`:
+
+1. Si `confianza < UMBRAL_AUTO_AUTONOMA` → queda como `sugerida` (Fase 2).
+2. Si `Math.random() < AUTO_AUTONOMA_SAMPLE_RATE` → cae en sampling de
+   QA y queda como `sugerida` para que un humano la revise. Mantenemos
+   este % configurable de respuestas con paso humano para muestreo de
+   calidad continuo.
+3. Si pasa los dos checks → la `AiResponse` se marca como `aprobada` con
+   `approvedBy: null` (sistema), se delega a
+   `AutoResponseService.deliverAndClose(ai, ticket, null, autonomous=true)`
+   y termina en `enviada`. El ticket cierra con `resolutionType: 'auto'`,
+   `resolvedBy: null`.
+
+Si el delivery autónomo falla (sin requester, email caído), revertimos
+el estado a `sugerida`/`content: null` y emitimos `AiResponseSuggested`
+para que el flujo Fase 2 lo recoja — la red de seguridad descrita en
+§7.7. La `AiResponse` original conserva el `originalAiContent` así un
+humano puede aprobar manualmente sin regenerar.
+
 #### Manejo de fallas del LLM
 
 El catch del processor cubre dos modos de falla terminales (los retries

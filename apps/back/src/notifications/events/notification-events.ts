@@ -67,7 +67,12 @@ export interface TicketAssignedEvent extends BaseEvent {
 
 export interface TicketResolvedEvent extends BaseEvent {
   requesterId: string;
-  resolvedBy: string;
+  /**
+   * `null` cuando el cierre fue autónomo (Fase 3, sistema). El listener
+   * de notificaciones lo trata como dato más; para distinguir cierres
+   * manuales usar el `resolutionType` del ticket.
+   */
+  resolvedBy: string | null;
   nota: string;
 }
 
@@ -111,6 +116,13 @@ export interface AiResponseSentEvent extends BaseEvent {
   /** Solicitante del ticket — para notificar el cierre. */
   requesterId: string;
   emailMessageId: string | null;
+  /**
+   * `true` cuando el envío fue autónomo (Fase 3, sin paso humano).
+   * `false` cuando un agente aprobó la respuesta antes del envío.
+   * Los listeners de métricas usan esto para distinguir el ratio
+   * Fase 2 vs Fase 3 sin tener que rehidratar `AiResponse`.
+   */
+  autonomous: boolean;
 }
 
 export interface AiResponseDiscardedEvent extends BaseEvent {

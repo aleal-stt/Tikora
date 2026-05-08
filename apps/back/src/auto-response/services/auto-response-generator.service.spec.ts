@@ -1,6 +1,6 @@
 import { HttpStatus } from '@nestjs/common';
 import { Types } from 'mongoose';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiException } from '../../common/exceptions/api.exception';
 import { AiClientUnavailableError } from '../../ai-client/services/ai-client.service';
 import { AutoResponseGeneratorService } from './auto-response-generator.service';
@@ -48,6 +48,9 @@ interface ConfigDefaults {
   LLM_TEMP_RESPONSE: number;
   LLM_MAX_TOKENS_RESPONSE: number;
   LLM_PROMPT_CACHE_ENABLED: boolean;
+  AI_PHASE: number;
+  UMBRAL_AUTO_AUTONOMA: number;
+  AUTO_AUTONOMA_SAMPLE_RATE: number;
 }
 
 interface HarnessOpts {
@@ -56,6 +59,10 @@ interface HarnessOpts {
   hits?: ReturnType<typeof buildHit>[];
   aiClient?: { isEnabled: boolean; throwError?: Error };
   configOverrides?: Partial<ConfigDefaults>;
+  /** Confianza que devuelve el modelo en su salida estructurada. */
+  confianza?: number;
+  /** Si el delivery autónomo debe simular éxito o falla. Default true. */
+  deliveryOk?: boolean;
 }
 
 function buildHarness(opts: HarnessOpts = {}) {
@@ -78,10 +85,15 @@ function buildHarness(opts: HarnessOpts = {}) {
     })),
   };
 
-  const created: Array<Record<string, unknown>> = [];
+  // Cada doc creado lleva su propio `save` para que el flujo Fase 3
+  // pueda mutar `estado`/`content` y persistir sin romper.
+  const created: Array<Record<string, unknown> & { save: ReturnType<typeof vi.fn> }> = [];
   const aiResponseModel = {
     create: vi.fn(async (doc: Record<string, unknown>) => {
-      const persisted = { ...doc, _id: new Types.ObjectId() };
+      const save = vi.fn().mockImplementation(async function (this: unknown) {
+        return this;
+      });
+      const persisted = { ...doc, _id: new Types.ObjectId(), save };
       created.push(persisted);
       return persisted;
     }),
@@ -95,7 +107,7 @@ function buildHarness(opts: HarnessOpts = {}) {
           parsed: {
             respondable: true,
             respuesta: 'Hola',
-            confianza: 0.9,
+            confianza: opts.confianza ?? 0.9,
             sources: [{ chunkIndex: 1, usedFor: 'cita' }],
           },
           tokensInput: 100,
@@ -116,6 +128,9 @@ function buildHarness(opts: HarnessOpts = {}) {
     LLM_TEMP_RESPONSE: 0.3,
     LLM_MAX_TOKENS_RESPONSE: 4096,
     LLM_PROMPT_CACHE_ENABLED: false,
+    AI_PHASE: 2,
+    UMBRAL_AUTO_AUTONOMA: 0.9,
+    AUTO_AUTONOMA_SAMPLE_RATE: 0.1,
   };
   const merged: ConfigDefaults = { ...defaults, ...opts.configOverrides };
   const config = {
@@ -123,6 +138,10 @@ function buildHarness(opts: HarnessOpts = {}) {
   };
 
   const events = { emit: vi.fn() };
+
+  const autoResponse = {
+    deliverAndClose: vi.fn().mockResolvedValue(opts.deliveryOk ?? true),
+  };
 
   const service = new AutoResponseGeneratorService(
     ticketModel as unknown as ConstructorParameters<typeof AutoResponseGeneratorService>[0],
@@ -132,9 +151,19 @@ function buildHarness(opts: HarnessOpts = {}) {
     kbSearch as unknown as ConstructorParameters<typeof AutoResponseGeneratorService>[4],
     config as unknown as ConstructorParameters<typeof AutoResponseGeneratorService>[5],
     events as unknown as ConstructorParameters<typeof AutoResponseGeneratorService>[6],
+    autoResponse as unknown as ConstructorParameters<typeof AutoResponseGeneratorService>[7],
   );
 
-  return { service, ticketModel, classificationModel, aiResponseModel, aiClient, events, created };
+  return {
+    service,
+    ticketModel,
+    classificationModel,
+    aiResponseModel,
+    aiClient,
+    events,
+    created,
+    autoResponse,
+  };
 }
 
 describe('AutoResponseGeneratorService — failure persistence', () => {
@@ -230,5 +259,119 @@ describe('AutoResponseGeneratorService — failure persistence', () => {
     expect(result.outcome).toBe('api_error');
     expect(aiResponseModel.create).toHaveBeenCalledTimes(1);
     expect(created[0]?.failureReason).toBe('api_error');
+  });
+});
+
+describe('AutoResponseGeneratorService — Fase 3 (auto-envío autónomo)', () => {
+  beforeEach(() => {
+    // Por default, fuera de sampling (random alto) — los tests que
+    // necesiten el sampling lo overridean explícitamente.
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('envía autónomamente cuando AI_PHASE=3, confianza ≥ umbral y no cae en sampling', async () => {
+    const ticket = buildTicket();
+    const { service, autoResponse, events, created } = buildHarness({
+      ticket,
+      classification: buildClassification(ticket._id),
+      confianza: 0.95,
+      configOverrides: { AI_PHASE: 3, UMBRAL_AUTO_AUTONOMA: 0.9 },
+    });
+
+    const result = await service.generate(ticket._id.toString());
+
+    expect(result.outcome).toBe('sent_autonomous');
+    // El AiResponse pasó por aprobada antes del delivery.
+    expect(created[0]?.estado).toBe('aprobada');
+    expect(created[0]?.content).toBe('Hola');
+    expect(autoResponse.deliverAndClose).toHaveBeenCalledTimes(1);
+    expect(autoResponse.deliverAndClose).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      null,
+      true,
+    );
+    // Evento de aprobación con approvedBy='system' para distinguir origen.
+    const approved = events.emit.mock.calls.find((c) => c[0] === 'AiResponseApproved');
+    expect(approved?.[1]).toMatchObject({ approvedBy: 'system', edited: false });
+    // El path autónomo NO emite AiResponseSuggested — eso es solo
+    // cuando queda como pendiente de revisión humana.
+    const suggested = events.emit.mock.calls.find((c) => c[0] === 'AiResponseSuggested');
+    expect(suggested).toBeUndefined();
+  });
+
+  it('cae en sampling de QA y deja la respuesta como sugerida (red de seguridad)', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0); // siempre cae en sampling
+    const ticket = buildTicket();
+    const { service, autoResponse, events, created } = buildHarness({
+      ticket,
+      classification: buildClassification(ticket._id),
+      confianza: 0.95,
+      configOverrides: {
+        AI_PHASE: 3,
+        UMBRAL_AUTO_AUTONOMA: 0.9,
+        AUTO_AUTONOMA_SAMPLE_RATE: 0.1,
+      },
+    });
+
+    const result = await service.generate(ticket._id.toString());
+
+    expect(result.outcome).toBe('suggested');
+    expect(autoResponse.deliverAndClose).not.toHaveBeenCalled();
+    expect(created[0]?.estado).toBe('sugerida');
+    const suggested = events.emit.mock.calls.find((c) => c[0] === 'AiResponseSuggested');
+    expect(suggested).toBeDefined();
+  });
+
+  it('confianza por debajo del umbral autónomo deja la respuesta como sugerida', async () => {
+    const ticket = buildTicket();
+    const { service, autoResponse, created } = buildHarness({
+      ticket,
+      classification: buildClassification(ticket._id),
+      confianza: 0.85,
+      configOverrides: { AI_PHASE: 3, UMBRAL_AUTO_AUTONOMA: 0.9 },
+    });
+
+    const result = await service.generate(ticket._id.toString());
+    expect(result.outcome).toBe('suggested');
+    expect(autoResponse.deliverAndClose).not.toHaveBeenCalled();
+    expect(created[0]?.estado).toBe('sugerida');
+  });
+
+  it('en AI_PHASE=2 nunca auto-envía aunque la confianza supere el umbral', async () => {
+    const ticket = buildTicket();
+    const { service, autoResponse } = buildHarness({
+      ticket,
+      classification: buildClassification(ticket._id),
+      confianza: 0.99,
+      configOverrides: { AI_PHASE: 2, UMBRAL_AUTO_AUTONOMA: 0.9 },
+    });
+
+    const result = await service.generate(ticket._id.toString());
+    expect(result.outcome).toBe('suggested');
+    expect(autoResponse.deliverAndClose).not.toHaveBeenCalled();
+  });
+
+  it('si el delivery autónomo falla, revierte a sugerida (red de seguridad)', async () => {
+    const ticket = buildTicket();
+    const { service, autoResponse, created, events } = buildHarness({
+      ticket,
+      classification: buildClassification(ticket._id),
+      confianza: 0.95,
+      configOverrides: { AI_PHASE: 3, UMBRAL_AUTO_AUTONOMA: 0.9 },
+      deliveryOk: false,
+    });
+
+    const result = await service.generate(ticket._id.toString());
+    expect(result.outcome).toBe('suggested');
+    expect(autoResponse.deliverAndClose).toHaveBeenCalledTimes(1);
+    expect(created[0]?.estado).toBe('sugerida');
+    expect(created[0]?.content).toBeNull();
+    // El humano todavía debe poder verla — emitimos AiResponseSuggested.
+    const suggested = events.emit.mock.calls.find((c) => c[0] === 'AiResponseSuggested');
+    expect(suggested).toBeDefined();
   });
 });

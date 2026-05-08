@@ -140,7 +140,7 @@ export class AutoResponseService {
       edited: false,
     } satisfies AiResponseApprovedEvent);
 
-    await this.deliverAndClose(ai, ticket, caller);
+    await this.deliverAndClose(ai, ticket, caller.userId, false);
     return this.toResponse(ai);
   }
 
@@ -179,7 +179,7 @@ export class AutoResponseService {
       edited: true,
     } satisfies AiResponseApprovedEvent);
 
-    await this.deliverAndClose(ai, ticket, caller);
+    await this.deliverAndClose(ai, ticket, caller.userId, false);
     return this.toResponse(ai);
   }
 
@@ -228,20 +228,32 @@ export class AutoResponseService {
     return this.toResponse(ai);
   }
 
-  // -------- internos --------
-
   /**
    * Envía el correo al solicitante y cierra el ticket con
    * `resolutionType: 'auto'`. Si el envío falla, **no** revertimos la
-   * aprobación: la `AiResponse` queda en `aprobada`/`editada` y el
-   * admin puede reintentar manualmente. Cierre autónomo es lo único
-   * que requiere envío exitoso.
+   * aprobación: la `AiResponse` queda en su estado de entrada
+   * (`aprobada`/`editada` para Fase 2, o `sugerida` para Fase 3
+   * cuando el caller del Generator nos invoca). El admin puede
+   * reintentar manualmente.
+   *
+   * - `approvedByUserId` se persiste como `ticket.resolvedBy` y en el
+   *   `extra.approvedBy` de la interaction. Es `null` cuando el envío
+   *   es autónomo (Fase 3, sistema).
+   * - `autonomous: true` marca el evento `AiResponseSent` como
+   *   originado sin paso humano. Los listeners pueden usarlo para
+   *   distinguir métricas (ratio Fase 3 vs Fase 2).
+   *
+   * Devuelve `true` cuando el envío fue exitoso y el ticket quedó
+   * cerrado; `false` cuando algo en el camino falló (sin requester,
+   * email caído). Es público para que `AutoResponseGeneratorService`
+   * pueda reusarlo en el flujo autónomo.
    */
-  private async deliverAndClose(
+  async deliverAndClose(
     ai: AiResponseDocument,
     ticket: TicketDocument,
-    caller: AuthenticatedUser,
-  ): Promise<void> {
+    approvedByUserId: string | null,
+    autonomous: boolean,
+  ): Promise<boolean> {
     const requester = await this.userModel
       .findById(ticket.requesterId)
       .select('email fullName')
@@ -251,7 +263,7 @@ export class AutoResponseService {
       this.logger.warn(
         `No se encontró el solicitante ${ticket.requesterId.toString()} del ticket ${ticket._id.toString()} — auto-respuesta queda en aprobada sin envío.`,
       );
-      return;
+      return false;
     }
 
     let messageId: string | null = null;
@@ -270,7 +282,7 @@ export class AutoResponseService {
           err instanceof Error ? err.message : String(err)
         }`,
       );
-      return;
+      return false;
     }
 
     ai.estado = 'enviada';
@@ -283,7 +295,7 @@ export class AutoResponseService {
     const fromEstado = ticket.estado;
     ticket.estado = 'cerrado';
     ticket.resolutionType = 'auto';
-    ticket.resolvedBy = new Types.ObjectId(caller.userId);
+    ticket.resolvedBy = approvedByUserId ? new Types.ObjectId(approvedByUserId) : null;
     ticket.resolvedAt = new Date();
     await ticket.save();
 
@@ -294,8 +306,14 @@ export class AutoResponseService {
         eventName: 'AiResponseSent',
         fromEstado,
         toEstado: 'cerrado',
-        extra: { aiResponseId: ai._id.toString(), approvedBy: caller.userId },
-        content: 'Auto-respuesta enviada al solicitante. Ticket cerrado automáticamente.',
+        extra: {
+          aiResponseId: ai._id.toString(),
+          approvedBy: approvedByUserId,
+          autonomous,
+        },
+        content: autonomous
+          ? 'Auto-respuesta enviada autónomamente al solicitante. Ticket cerrado.'
+          : 'Auto-respuesta enviada al solicitante. Ticket cerrado automáticamente.',
       })
       .catch((err) =>
         this.logger.warn(
@@ -312,6 +330,7 @@ export class AutoResponseService {
       aiResponseId: ai._id.toString(),
       requesterId: ticket.requesterId.toString(),
       emailMessageId: messageId,
+      autonomous,
     } satisfies AiResponseSentEvent);
 
     // Evento estándar de tickets — los suscriptores existentes (métricas,
@@ -322,10 +341,13 @@ export class AutoResponseService {
       tenantId: ticket.tenantId.toString(),
       ticketId: ticket._id.toString(),
       requesterId: ticket.requesterId.toString(),
-      resolvedBy: caller.userId,
+      resolvedBy: approvedByUserId,
       nota: ai.content ?? '',
     } satisfies TicketResolvedEvent);
+    return true;
   }
+
+  // -------- internos --------
 
   private summarizeDiff(original: string, edited: string): string {
     if (original === edited) return 'sin-cambios';

@@ -15,15 +15,18 @@ import { KbSearchHit, KbSearchService } from '../../kb/services/kb-search.servic
 import { Ticket, TicketDocument } from '../../tickets/schemas/ticket.schema';
 import {
   AUTO_RESPONSE_EVENTS,
+  AiResponseApprovedEvent,
   AiResponseFailedEvent,
   AiResponseSuggestedEvent,
 } from '../events/auto-response-events';
 import { buildResponseUserMessage, renderResponsePromptV1 } from '../prompts/response-prompt-v1';
 import { AiResponse, AiResponseDocument } from '../schemas/ai-response.schema';
+import { AutoResponseService } from './auto-response.service';
 
 export interface GenerateOutcome {
   outcome:
     | 'suggested'
+    | 'sent_autonomous'
     | 'no_kb_match'
     | 'not_respondable'
     | 'api_error'
@@ -64,6 +67,7 @@ export class AutoResponseGeneratorService {
     private readonly kbSearch: KbSearchService,
     private readonly config: ConfigService<Env, true>,
     private readonly events: EventEmitter2,
+    private readonly autoResponse: AutoResponseService,
   ) {}
 
   async generate(ticketId: string): Promise<GenerateOutcome> {
@@ -221,6 +225,26 @@ export class AutoResponseGeneratorService {
       latencyMs: result.latencyMs,
     });
 
+    // 6) Fase 3 — auto-envío autónomo. Si la confianza supera el umbral
+    //    y la corrida no cae en el sampling de QA, saltamos directo a
+    //    `enviada` sin pasar por aprobación humana. Si el delivery
+    //    falla (correo caído, etc.), revertimos a `sugerida` para que
+    //    un humano pueda aprobar manualmente — la red de seguridad
+    //    descrita en `tikora-ia.md` §7.7.
+    if (this.shouldAutoSend(parsed.confianza)) {
+      const sent = await this.tryAutonomousDelivery(persisted, ticket);
+      if (sent) {
+        this.logger.log(
+          `Auto-respuesta enviada autónomamente ticketId=${ticketOid.toString()} confianza=${parsed.confianza.toFixed(
+            2,
+          )} chunks=${hits.length}`,
+        );
+        return { outcome: 'sent_autonomous', aiResponseId: persisted._id.toString() };
+      }
+      // Delivery falló — el persisted ya quedó en `sugerida` (revert).
+      // Caemos al path normal de Fase 2.
+    }
+
     this.events.emit(AUTO_RESPONSE_EVENTS.AiResponseSuggested, {
       tenantId: tenantOid.toString(),
       ticketId: ticketOid.toString(),
@@ -235,6 +259,72 @@ export class AutoResponseGeneratorService {
       )} chunks=${hits.length}`,
     );
     return { outcome: 'suggested', aiResponseId: persisted._id.toString() };
+  }
+
+  /**
+   * `tikora-ia.md` §7.7 — auto-envío autónomo cuando se cumple:
+   *   1. `AI_PHASE === 3`
+   *   2. `confianza ≥ UMBRAL_AUTO_AUTONOMA`
+   *   3. La corrida no cae en el sampling de QA (`AUTO_AUTONOMA_SAMPLE_RATE`)
+   *
+   * El sample rate dicta qué fracción de respuestas elegibles igual
+   * pasan por humano para muestreo de calidad continuo. Sample = 0.1
+   * → 10% pasa por humano, 90% se envía solo.
+   */
+  private shouldAutoSend(confianza: number): boolean {
+    const phase = this.config.get('AI_PHASE', { infer: true });
+    if (phase < 3) return false;
+    const umbral = this.config.get('UMBRAL_AUTO_AUTONOMA', { infer: true });
+    if (confianza < umbral) return false;
+    const sampleRate = this.config.get('AUTO_AUTONOMA_SAMPLE_RATE', { infer: true });
+    // `Math.random()` < sampleRate ⇒ el ticket cae en el sampling y NO
+    // se auto-envía. El comportamiento es estadístico — los tests usan
+    // `vi.spyOn(Math, 'random')` para hacerlo determinístico.
+    if (Math.random() < sampleRate) return false;
+    return true;
+  }
+
+  /**
+   * Intenta el envío autónomo: marca la `AiResponse` como `aprobada`
+   * por sistema y delega al `AutoResponseService.deliverAndClose`. Si
+   * el delivery falla (sin requester, email caído), revertimos los
+   * cambios para que la `AiResponse` vuelva a `sugerida` y el flujo
+   * de Fase 2 pueda recogerla.
+   */
+  private async tryAutonomousDelivery(
+    ai: AiResponseDocument,
+    ticket: TicketDocument,
+  ): Promise<boolean> {
+    ai.estado = 'aprobada';
+    ai.approvedBy = null;
+    ai.approvedAt = new Date();
+    ai.content = ai.originalAiContent;
+    await ai.save();
+
+    // Equivalente al `AiResponseApproved` que emite el flujo manual
+    // — consumidores de métricas verán siempre el evento, con
+    // `approvedBy: 'system'` distinguiendo el origen autónomo.
+    this.events.emit(AUTO_RESPONSE_EVENTS.AiResponseApproved, {
+      tenantId: ai.tenantId.toString(),
+      ticketId: ai.ticketId.toString(),
+      aiResponseId: ai._id.toString(),
+      approvedBy: 'system',
+      edited: false,
+    } satisfies AiResponseApprovedEvent);
+
+    const delivered = await this.autoResponse.deliverAndClose(ai, ticket, null, true);
+    if (delivered) return true;
+
+    // Revert para que la `AiResponse` vuelva a `sugerida` y el panel
+    // de aprobación humana la levante. No tocamos `originalAiContent`
+    // — sigue siendo la propuesta del modelo.
+    ai.estado = 'sugerida';
+    ai.approvedBy = null;
+    ai.approvedAt = null;
+    ai.content = null;
+    await ai.save();
+    this.logger.warn(`Auto-envío falló para ticketId=${ticket._id.toString()}, vuelve a sugerida.`);
+    return false;
   }
 
   /**
