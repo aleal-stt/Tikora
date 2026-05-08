@@ -30,33 +30,42 @@ export function useUser(id: string | undefined) {
   });
 }
 
-export function useCreateUser() {
+/**
+ * Las mutations de usuarios afectan también a `areas` por la sincronización
+ * bidireccional del back: cuando un user pasa a `areaIds: [X]`, el back
+ * actualiza `Area.agentIds` (o `leaderIds`) y viceversa. Sin invalidar
+ * `areas` el listado mostraría agentes/líderes fantasma o faltantes hasta
+ * que `staleTime` venza.
+ */
+function useInvalidateUserAndAreas() {
   const qc = useQueryClient();
+  return (userId?: string) => {
+    qc.invalidateQueries({ queryKey: usersKeys.all });
+    if (userId) qc.invalidateQueries({ queryKey: usersKeys.detail(userId) });
+    qc.invalidateQueries({ queryKey: ['areas'] });
+  };
+}
+
+export function useCreateUser() {
+  const invalidate = useInvalidateUserAndAreas();
   return useMutation({
     mutationFn: (input: CreateUser) => createUser(input),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: usersKeys.all });
-    },
+    onSuccess: (data) => invalidate(data.id),
   });
 }
 
 export function useUpdateUser() {
-  const qc = useQueryClient();
+  const invalidate = useInvalidateUserAndAreas();
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateUser }) => updateUser(id, input),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: usersKeys.all });
-      qc.invalidateQueries({ queryKey: usersKeys.detail(vars.id) });
-    },
+    onSuccess: (_data, vars) => invalidate(vars.id),
   });
 }
 
 export function useDeleteUser() {
-  const qc = useQueryClient();
+  const invalidate = useInvalidateUserAndAreas();
   return useMutation({
     mutationFn: (id: string) => deleteUser(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: usersKeys.all });
-    },
+    onSuccess: (_data, id) => invalidate(id),
   });
 }

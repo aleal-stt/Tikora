@@ -82,8 +82,23 @@ export function useDeleteArea() {
   });
 }
 
+/**
+ * Las mutations de membership (agentes/líderes de un área) afectan al
+ * `User.areaIds` por la sincronización bidireccional del back. Hay que
+ * invalidar también `users` para que el listado de usuarios refresque
+ * sus áreas asignadas sin esperar al stale.
+ */
+function useInvalidateAreaAndUsers() {
+  const qc = useQueryClient();
+  const invalidateArea = useInvalidateArea();
+  return (areaId: string) => {
+    invalidateArea(areaId);
+    qc.invalidateQueries({ queryKey: ['users'] });
+  };
+}
+
 export function useAddAreaAgent() {
-  const invalidate = useInvalidateArea();
+  const invalidate = useInvalidateAreaAndUsers();
   return useMutation({
     mutationFn: ({ id, userId }: { id: string; userId: string }) => addAreaAgent(id, userId),
     onSuccess: (_data, vars) => invalidate(vars.id),
@@ -91,7 +106,7 @@ export function useAddAreaAgent() {
 }
 
 export function useRemoveAreaAgent() {
-  const invalidate = useInvalidateArea();
+  const invalidate = useInvalidateAreaAndUsers();
   return useMutation({
     mutationFn: ({ id, userId }: { id: string; userId: string }) => removeAreaAgent(id, userId),
     onSuccess: (_data, vars) => invalidate(vars.id),
@@ -99,7 +114,7 @@ export function useRemoveAreaAgent() {
 }
 
 export function useAddAreaLeader() {
-  const invalidate = useInvalidateArea();
+  const invalidate = useInvalidateAreaAndUsers();
   return useMutation({
     mutationFn: ({ id, userId }: { id: string; userId: string }) => addAreaLeader(id, userId),
     onSuccess: (_data, vars) => invalidate(vars.id),
@@ -107,7 +122,7 @@ export function useAddAreaLeader() {
 }
 
 export function useRemoveAreaLeader() {
-  const invalidate = useInvalidateArea();
+  const invalidate = useInvalidateAreaAndUsers();
   return useMutation({
     mutationFn: ({ id, userId }: { id: string; userId: string }) => removeAreaLeader(id, userId),
     onSuccess: (_data, vars) => invalidate(vars.id),
