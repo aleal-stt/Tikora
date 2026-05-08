@@ -7,6 +7,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AreasModule } from '../areas/areas.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
 import { AuthModule } from '../auth/auth.module';
+import { AutoResponseModule } from '../auto-response/auto-response.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ClassificationModule } from '../classification/classification.module';
@@ -64,6 +65,7 @@ import { UsersModule } from '../users/users.module';
     MetricsModule,
     ClassificationModule,
     KbModule,
+    AutoResponseModule,
     NotificationsModule,
     AuthModule,
     HealthModule,

@@ -41,6 +41,9 @@ import { ClassificationService } from './services/classification.service';
     InteractionsModule,
   ],
   providers: [ClassificationService, ClassificationQueueService, ClassificationProcessor],
-  exports: [ClassificationQueueService],
+  // Exportamos MongooseModule para que AutoResponseModule reciba el
+  // modelo Classification al rehidratar la última clasificación del
+  // ticket dentro del flujo de generación de auto-respuesta.
+  exports: [ClassificationQueueService, MongooseModule],
 })
 export class ClassificationModule {}

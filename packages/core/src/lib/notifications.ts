@@ -13,6 +13,16 @@ export const notificationEventTypeSchema = z.enum([
   'TicketResolved',
   'TicketReopened',
   'InteractionAdded',
+  // Auto-respuesta (Fase 2+). Cada uno notifica:
+  // - Suggested: agentes del área para que aprueben/editen/descarten.
+  // - Approved/Sent: solicitante (correo) + interacción de sistema.
+  // - Discarded: agente que disparó la decisión y siguiente revisor.
+  // - Failed: admin del tenant (alarma).
+  'AiResponseSuggested',
+  'AiResponseApproved',
+  'AiResponseSent',
+  'AiResponseDiscarded',
+  'AiResponseFailed',
 ]);
 export type NotificationEventType = z.infer<typeof notificationEventTypeSchema>;
 

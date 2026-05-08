@@ -72,20 +72,48 @@ export const envSchema = z.object({
   // la cola encola pero el processor cae al fallback humano para cada job.
   ANTHROPIC_API_KEY: z.string().default(''),
   ANTHROPIC_MODEL_CLASSIFICATION: z.string().min(1).default('claude-haiku-4-5-20251001'),
+  // Auto-respuesta — modelo más capaz que clasificación porque genera
+  // texto largo en español citando fuentes. Sonnet 4.6 es el default;
+  // ver tikora-ia.md §2.1.
+  ANTHROPIC_MODEL_RESPONSE: z.string().min(1).default('claude-sonnet-4-6'),
   ANTHROPIC_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   ANTHROPIC_MAX_RETRIES: z.coerce.number().int().min(0).default(3),
   ANTHROPIC_RETRY_BACKOFF_MS: z.coerce.number().int().positive().default(1000),
   ANTHROPIC_MAX_TOKENS_CLASSIFICATION: z.coerce.number().int().positive().default(1024),
+  // Auto-respuesta usa más tokens de salida que clasificación porque la
+  // respuesta al usuario puede tener varios párrafos.
+  ANTHROPIC_MAX_TOKENS_RESPONSE: z.coerce.number().int().positive().default(2048),
   ANTHROPIC_TEMP_CLASSIFICATION: z.coerce.number().min(0).max(2).default(0),
+  // Auto-respuesta usa temperatura > 0 para texto natural pero baja
+  // (0.3) para mantener la respuesta pegada a la información de la KB.
+  ANTHROPIC_TEMP_RESPONSE: z.coerce.number().min(0).max(2).default(0.3),
   ANTHROPIC_PROMPT_CACHE_ENABLED: booleanString.default(true),
 
   // Versión activa del prompt de clasificación. Se persiste en cada
   // `Classification` para auditar cambios entre versiones.
   CLASSIFICATION_PROMPT_VERSION: z.string().min(1).default('v1'),
+  // Versión activa del prompt de auto-respuesta. Se persiste en cada
+  // `AiResponse` para poder evaluar A/B entre versiones.
+  RESPONSE_PROMPT_VERSION: z.string().min(1).default('v1'),
 
   // Por debajo de este umbral, la IA se considera "no segura" y el ticket
   // pasa a `requiere_revision_clasificacion` para que un humano decida.
   UMBRAL_CONFIANZA_CLASIFICACION: z.coerce.number().min(0).max(1).default(0.7),
+  // Score mínimo de relevancia (cosine similarity) que debe tener al
+  // menos un chunk de la KB para considerarla "respondible". Ver
+  // tikora-embeddings.md §9.4.
+  UMBRAL_RELEVANCIA_KB: z.coerce.number().min(0).max(1).default(0.75),
+  // Confianza mínima de la respuesta IA a partir de la cual el envío
+  // pasa a ser autónomo (Fase 3). Por debajo, requiere aprobación humana.
+  UMBRAL_AUTO_AUTONOMA: z.coerce.number().min(0).max(1).default(0.9),
+  // Porcentaje de respuestas autónomas que de todas formas pasan por un
+  // agente humano para muestreo de calidad. 0.1 = 10% (Fase 3).
+  AUTO_AUTONOMA_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
+
+  // Truncado del cuerpo del ticket antes de mandarlo al modelo. Tickets
+  // más largos se cortan con nota; evita prompts gigantes que rompen
+  // el budget de tokens y/o disparan errores 400 del proveedor.
+  MAX_TICKET_BODY_TOKENS: z.coerce.number().int().positive().default(4000),
 
   // KB y embeddings — el módulo `kb` chunkea documentos, genera embeddings
   // localmente con Transformers.js y persiste en `kb_chunks` para búsqueda

@@ -8,12 +8,36 @@ interface WelcomeEmailRecipient {
   fullName: string;
 }
 
+interface AutoResponseEmailParams {
+  to: string;
+  fullName: string;
+  ticketShortCode: string;
+  asunto: string;
+  body: string;
+}
+
 @Injectable()
 export class EmailService {
   constructor(
     @Inject(EMAIL_DELIVERER) private readonly deliverer: IEmailDeliverer,
     private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /**
+   * Envía la auto-respuesta al solicitante. Devuelve el `messageId` que
+   * provee el deliverer (en `live` viene de Resend; en `log` queda
+   * `null` y eso queda anotado en `AiResponse.emailMessageId`).
+   */
+  async sendAutoResponseEmail(
+    params: AutoResponseEmailParams,
+  ): Promise<{ messageId: string | null }> {
+    const subject = `Re: [${params.ticketShortCode}] ${params.asunto}`;
+    const text = `Hola ${params.fullName},\n\n${params.body}\n\nSi necesitás más ayuda, respondé este correo y un agente continuará el caso.\n\n— Equipo Tikora`;
+    await this.deliverer.send({ to: params.to, subject, text });
+    // El deliverer actual (`log`) no devuelve messageId. El adapter de
+    // Resend en su sprint sí lo va a devolver — la firma queda lista.
+    return { messageId: null };
+  }
 
   async sendWelcomeEmail(
     recipient: WelcomeEmailRecipient,

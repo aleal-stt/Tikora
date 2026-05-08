@@ -5,7 +5,7 @@ import {
 } from './notifications';
 
 describe('notifications contracts', () => {
-  it('lista cerrada de event types incluye los 7 del Sprint 9', () => {
+  it('lista cerrada de event types incluye los de Sprint 9 + auto-respuesta', () => {
     [
       'TicketCreated',
       'TicketClassified',
@@ -14,13 +14,18 @@ describe('notifications contracts', () => {
       'TicketResolved',
       'TicketReopened',
       'InteractionAdded',
+      'AiResponseSuggested',
+      'AiResponseApproved',
+      'AiResponseSent',
+      'AiResponseDiscarded',
+      'AiResponseFailed',
     ].forEach((t) => {
       expect(notificationEventTypeSchema.safeParse(t).success).toBe(true);
     });
   });
 
   it('rechaza event type fuera del catálogo', () => {
-    expect(notificationEventTypeSchema.safeParse('AiResponseSent').success).toBe(false);
+    expect(notificationEventTypeSchema.safeParse('NoExisteEsteEvento').success).toBe(false);
   });
 
   it('valida una notification con payload arbitrario', () => {

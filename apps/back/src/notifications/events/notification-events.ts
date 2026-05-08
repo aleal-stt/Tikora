@@ -12,6 +12,14 @@ export const NOTIFICATION_EVENTS = {
   TicketResolved: 'TicketResolved',
   TicketReopened: 'TicketReopened',
   InteractionAdded: 'InteractionAdded',
+  // Eventos de auto-respuesta — se emiten desde `auto-response/services/*`
+  // pero los suscriptores (notifications listener, métricas) los buscan
+  // por estas claves para mantener un único catálogo de nombres.
+  AiResponseSuggested: 'AiResponseSuggested',
+  AiResponseApproved: 'AiResponseApproved',
+  AiResponseSent: 'AiResponseSent',
+  AiResponseDiscarded: 'AiResponseDiscarded',
+  AiResponseFailed: 'AiResponseFailed',
 } as const satisfies Record<NotificationEventType, NotificationEventType>;
 
 interface BaseEvent {

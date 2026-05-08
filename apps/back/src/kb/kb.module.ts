@@ -12,6 +12,7 @@ import { KbChunk, KbChunkSchema } from './schemas/kb-chunk.schema';
 import { KbDocument, KbDocumentSchema } from './schemas/kb-document.schema';
 import { KbIndexerService } from './services/kb-indexer.service';
 import { KB_INDEXING_QUEUE, KbIndexingQueueService } from './services/kb-indexing-queue.service';
+import { KbSearchService } from './services/kb-search.service';
 import { KbService } from './services/kb.service';
 
 @Module({
@@ -42,16 +43,26 @@ import { KbService } from './services/kb.service';
     KbIndexerService,
     KbIndexingQueueService,
     KbIndexingProcessor,
+    KbSearchService,
     {
       // Provider de embeddings detrás del token DI: cualquier consumidor
-      // (KbIndexerService ahora, KbSearchService en Sprint C) lo recibe
-      // por el token y queda desacoplado de la implementación concreta.
+      // (KbIndexerService, KbSearchService) lo recibe por el token y
+      // queda desacoplado de la implementación concreta.
       provide: EMBEDDING_PROVIDER,
       useClass: TransformersEmbeddingProvider,
     },
   ],
-  // Exportamos el indexer + queue para que el comando `reindex-kb` y el
-  // futuro Sprint C los puedan reutilizar sin duplicar config de cola.
-  exports: [KbService, KbIndexerService, KbIndexingQueueService, EMBEDDING_PROVIDER],
+  // Exportamos lo que consumen otros módulos (auto-response usa
+  // KbSearchService; el comando `reindex-kb` usa KbIndexingQueueService).
+  // MongooseModule exportado para que AutoResponseModule reciba los
+  // modelos KbDocument y KbChunk al rehidratar `AiResponse.sourceChunks`.
+  exports: [
+    KbService,
+    KbIndexerService,
+    KbIndexingQueueService,
+    KbSearchService,
+    EMBEDDING_PROVIDER,
+    MongooseModule,
+  ],
 })
 export class KbModule {}
