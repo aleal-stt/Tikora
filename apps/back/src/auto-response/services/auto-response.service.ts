@@ -78,7 +78,10 @@ export class AutoResponseService {
       .findOne({ tenantId: ticket.tenantId, ticketId: ticket._id })
       .sort({ createdAt: -1 })
       .exec();
-    if (!ai || ai.estado === 'descartada') return null;
+    // Las fallidas son audit-only: se persisten para trazar la llamada
+    // perdida pero no se muestran en el panel del ticket porque no son
+    // accionables (no hay nada que aprobar ni descartar).
+    if (!ai || ai.estado === 'descartada' || ai.estado === 'fallida') return null;
     return this.toResponse(ai);
   }
 
@@ -416,6 +419,8 @@ export class AutoResponseService {
       discardedAt: ai.discardedAt?.toISOString() ?? null,
       discardReason: ai.discardReason,
       sentAt: ai.sentAt?.toISOString() ?? null,
+      failureReason: ai.failureReason,
+      failureDetail: ai.failureDetail,
       createdAt: ai.createdAt.toISOString(),
     };
   }

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import type { AiResponseEstado } from '@tikora/core';
+import type { AiResponseEstado, AiResponseFailureReason } from '@tikora/core';
 import { HydratedDocument, Types } from 'mongoose';
 
 /**
@@ -50,7 +50,7 @@ export class AiResponse {
   @Prop({
     type: String,
     required: true,
-    enum: ['sugerida', 'aprobada', 'editada', 'enviada', 'descartada'],
+    enum: ['sugerida', 'aprobada', 'editada', 'enviada', 'descartada', 'fallida'],
   })
   estado!: AiResponseEstado;
 
@@ -144,6 +144,17 @@ export class AiResponse {
 
   @Prop({ type: String, default: null })
   emailMessageId!: string | null;
+
+  // Diagnóstico cuando `estado === 'fallida'`. En cualquier otro estado quedan null.
+  @Prop({
+    type: String,
+    enum: ['api_error', 'validation_error', null],
+    default: null,
+  })
+  failureReason!: AiResponseFailureReason | null;
+
+  @Prop({ type: String, default: null })
+  failureDetail!: string | null;
 
   /** Flag para Fase 3: si el solicitante reabre el ticket tras la auto-respuesta. */
   @Prop({ type: Boolean, default: false })

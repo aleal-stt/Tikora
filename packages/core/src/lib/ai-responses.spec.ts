@@ -144,6 +144,8 @@ describe('ai-responses contracts', () => {
       discardedAt: null,
       discardReason: null,
       sentAt: null,
+      failureReason: null,
+      failureDetail: null,
       createdAt: '2026-05-08T10:00:00Z',
     };
 
@@ -161,6 +163,27 @@ describe('ai-responses contracts', () => {
         sentAt: '2026-05-08T10:05:30Z',
       });
       expect(result.success).toBe(true);
+    });
+
+    it('valida una fallida con failureReason y failureDetail', () => {
+      const result = aiResponseSchema.safeParse({
+        ...baseAiResponse,
+        estado: 'fallida',
+        respondable: false,
+        originalAiContent: null,
+        failureReason: 'api_error',
+        failureDetail: 'Gemini 503 tras 3 retries',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rechaza failureReason fuera del catálogo', () => {
+      const result = aiResponseSchema.safeParse({
+        ...baseAiResponse,
+        estado: 'fallida',
+        failureReason: 'timeout',
+      });
+      expect(result.success).toBe(false);
     });
 
     it('rechaza estado fuera del catálogo', () => {

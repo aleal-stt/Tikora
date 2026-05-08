@@ -21,6 +21,11 @@ import { z } from 'zod';
  * - `editada`: el agente modificó el texto antes de aprobar.
  * - `enviada`: el correo salió y el ticket se cerró con `resolutionType:'auto'`.
  * - `descartada`: el agente la rechazó; el ticket vuelve a `escalado`.
+ * - `fallida`: la llamada al LLM agotó los retries (transitorios) o devolvió
+ *   salida fuera de schema tras los reintentos correctivos. Se persiste para
+ *   auditoría (modelo, latencia parcial, motivo) pero no es accionable: el
+ *   ticket sigue en `escalado` y un admin queda notificado vía
+ *   `AiResponseFailed`.
  *
  * En Fase 3 una respuesta puede saltar de `sugerida` a `enviada` directamente
  * cuando supera `UMBRAL_AUTO_AUTONOMA` y no cae en el sampleo de QA.
@@ -31,8 +36,21 @@ export const aiResponseEstadoSchema = z.enum([
   'editada',
   'enviada',
   'descartada',
+  'fallida',
 ]);
 export type AiResponseEstado = z.infer<typeof aiResponseEstadoSchema>;
+
+/**
+ * Causa de un `estado: 'fallida'`. Se llena solo en ese caso; en cualquier
+ * otro estado queda `null`.
+ *
+ * - `api_error`: el cliente del LLM agotó los retries por errores
+ *   transitorios (5xx, 429, timeouts).
+ * - `validation_error`: el modelo respondió pero la salida no respetó el
+ *   schema esperado tras los reintentos correctivos.
+ */
+export const aiResponseFailureReasonSchema = z.enum(['api_error', 'validation_error']);
+export type AiResponseFailureReason = z.infer<typeof aiResponseFailureReasonSchema>;
 
 /**
  * Source que devuelve el modelo dentro de su JSON. `chunkIndex` es 1-based
@@ -131,6 +149,8 @@ export const aiResponseSchema = z.object({
   discardedAt: z.string().nullable(),
   discardReason: z.string().nullable(),
   sentAt: z.string().nullable(),
+  failureReason: aiResponseFailureReasonSchema.nullable(),
+  failureDetail: z.string().nullable(),
   createdAt: z.string(),
 });
 export type AiResponse = z.infer<typeof aiResponseSchema>;

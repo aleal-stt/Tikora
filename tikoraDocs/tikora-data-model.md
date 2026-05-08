@@ -467,7 +467,7 @@ Disponible desde Fase 2.
   _id: ObjectId,
   tenantId: ObjectId,
   ticketId: ObjectId,
-  estado: 'sugerida' | 'aprobada' | 'editada' | 'enviada' | 'descartada',
+  estado: 'sugerida' | 'aprobada' | 'editada' | 'enviada' | 'descartada' | 'fallida',
   respondable: boolean,
   motivoNoRespondable: string | null,
   originalAiContent: string | null,
@@ -498,6 +498,8 @@ Disponible desde Fase 2.
   discardReason: string | null,
   sentAt: Date | null,
   emailMessageId: string | null,
+  failureReason: 'api_error' | 'validation_error' | null,
+  failureDetail: string | null,
   reopenedAfterAutoResponse: boolean,
   createdAt: Date,
   updatedAt: Date
@@ -514,6 +516,13 @@ Disponible desde Fase 2.
 
 - Al máximo una `ai_responses` activa por ticket. Si se descarta, se puede regenerar.
 - `respondable: false` deja `content = null` y bloquea aprobación.
+- `estado: 'fallida'` marca un intento de generación que agotó los retries del LLM
+  (transitorios) o no respetó el schema esperado tras los reintentos correctivos.
+  Es **audit-only**: deja `respondable: false`, `originalAiContent: null`, copia los
+  `sourceChunks` recuperados de la KB y persiste `failureReason` + `failureDetail`
+  para diagnóstico. No es accionable desde el panel del ticket
+  (`GET /tickets/:id/ai-response` la ignora) y un admin queda notificado vía
+  `AiResponseFailed`.
 
 ---
 

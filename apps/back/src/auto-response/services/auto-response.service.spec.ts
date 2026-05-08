@@ -32,7 +32,13 @@ function buildAi(overrides: Partial<Record<string, unknown>> = {}) {
     _id: id,
     tenantId: TENANT,
     ticketId,
-    estado: 'sugerida' as 'sugerida' | 'aprobada' | 'editada' | 'enviada' | 'descartada',
+    estado: 'sugerida' as
+      | 'sugerida'
+      | 'aprobada'
+      | 'editada'
+      | 'enviada'
+      | 'descartada'
+      | 'fallida',
     respondable: true,
     motivoNoRespondable: null as string | null,
     originalAiContent: 'Hola, estos son los pasos...',
@@ -56,6 +62,8 @@ function buildAi(overrides: Partial<Record<string, unknown>> = {}) {
     discardReason: null as string | null,
     sentAt: null as Date | null,
     emailMessageId: null as string | null,
+    failureReason: null as 'api_error' | 'validation_error' | null,
+    failureDetail: null as string | null,
     reopenedAfterAutoResponse: false,
     createdAt: new Date('2026-05-08T10:00:00Z'),
     updatedAt: new Date('2026-05-08T10:00:00Z'),
@@ -278,6 +286,21 @@ describe('AutoResponseService', () => {
     it('devuelve null si la última está descartada', async () => {
       const ticket = buildTicket();
       const ai = buildAi({ ticketId: ticket._id, estado: 'descartada' });
+      const { service } = buildHarness({ ai, ticket });
+      const result = await service.getCurrentForTicket(asAdmin(), ticket._id.toString());
+      expect(result).toBeNull();
+    });
+
+    it('devuelve null si la última está fallida (audit-only, no accionable)', async () => {
+      const ticket = buildTicket();
+      const ai = buildAi({
+        ticketId: ticket._id,
+        estado: 'fallida',
+        respondable: false,
+        originalAiContent: null,
+        failureReason: 'api_error',
+        failureDetail: 'Gemini 503 tras 3 retries',
+      });
       const { service } = buildHarness({ ai, ticket });
       const result = await service.getCurrentForTicket(asAdmin(), ticket._id.toString());
       expect(result).toBeNull();

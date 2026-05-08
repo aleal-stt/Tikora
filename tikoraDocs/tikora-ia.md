@@ -504,6 +504,31 @@ Fase 3: si confianza_respuesta ≥ UMBRAL_AUTO_AUTONOMA → enviar correo y cerr
         si no → notificar al agente para aprobación (red de seguridad)
 ```
 
+#### Manejo de fallas del LLM
+
+El catch del processor cubre dos modos de falla terminales (los retries
+internos del `AiClientService` ya se agotaron):
+
+- **Retries transitorios agotados** (`code: AI_API_ERROR`): 5xx/429/timeouts
+  consecutivos → `failureReason: 'api_error'`.
+- **Output fuera de schema tras reintentos correctivos** (`code: AI_OUTPUT_INVALID`):
+  el modelo respondió pero el JSON no respeta `AutoResponseOutputSchema` →
+  `failureReason: 'validation_error'`.
+
+En ambos casos:
+
+1. Se persiste un `AiResponse` con `estado: 'fallida'`, dejando trazabilidad
+   del modelo, prompt version, chunks recuperados y `failureDetail` con el
+   mensaje del error. Tokens y latencia quedan en 0 (no los expone el throw).
+2. Se emite `AiResponseFailed` con la `reason` correspondiente. El listener de
+   `notifications` notifica a admins (no a líderes/agentes del área: la falla
+   es operativa, no funcional).
+3. El ticket queda en `escalado` y se trata como cualquier otro ticket manual.
+   No se retoma la auto-respuesta automáticamente.
+
+Las fallidas son **audit-only**: `getCurrentForTicket` las filtra para que el
+panel de "Sugerencia IA" del ticket no muestre intentos perdidos.
+
 ### 7.3 System prompt (versión inicial)
 
 Ubicación: `apps/back/src/auto-response/templates/response-prompt.v1.md`.

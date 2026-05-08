@@ -4,10 +4,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { autoResponseOutputSchema, type AutoResponseOutput } from '@tikora/core';
 import { Model, Types } from 'mongoose';
-import {
-  AiClientService,
-  AiClientUnavailableError,
-} from '../../ai-client/services/ai-client.service';
+import { AiClientService } from '../../ai-client/services/ai-client.service';
+import { ApiException } from '../../common/exceptions/api.exception';
 import {
   Classification,
   ClassificationDocument,
@@ -82,6 +80,11 @@ export class AutoResponseGeneratorService {
     }
     if (!this.aiClient.isEnabled()) {
       this.logger.warn(`generate: AiClient deshabilitado, no genero auto-respuesta.`);
+      // Sin LLM client no podemos siquiera intentar — notificamos al
+      // admin pero no persistimos AiResponse: no hay metadata útil
+      // (sin model resuelto, sin KB hits, sin latencia) y la causa raíz
+      // suele ser config (`LLM_API_KEY` faltante), no un error de la run.
+      this.emitFailed(ticket, 'api_error', 'LLM client no inicializado.');
       return { outcome: 'api_error' };
     }
 
@@ -145,14 +148,23 @@ export class AutoResponseGeneratorService {
         },
       });
     } catch (err) {
-      if (err instanceof AiClientUnavailableError) {
-        this.emitFailed(ticket, 'api_error', err.message);
-        return { outcome: 'api_error' };
-      }
       const message = err instanceof Error ? err.message : String(err);
-      // El AiClient lanza ApiException en errores de validación/transporte.
-      // Distinguimos por nombre de clase de error.
-      const reason = /AI_OUTPUT_INVALID/i.test(message) ? 'validation_error' : 'api_error';
+      // El AiClient lanza ApiException con `code: 'AI_OUTPUT_INVALID'`
+      // cuando el schema no se cumple tras los reintentos correctivos
+      // (→ validation_error) y `code: 'AI_API_ERROR'` cuando se agotan
+      // los retries por errores transitorios (→ api_error). Cualquier
+      // otra excepción cae en api_error por defecto.
+      const reason: 'api_error' | 'validation_error' =
+        this.errorCode(err) === 'AI_OUTPUT_INVALID' ? 'validation_error' : 'api_error';
+      await this.persistFailure({
+        ticket,
+        hits,
+        model,
+        promptVersion,
+        temperature,
+        reason,
+        detail: message,
+      });
       this.emitFailed(ticket, reason, message);
       this.logger.warn(`generate: error de AiClient ticketId=${ticket._id.toString()}: ${message}`);
       return { outcome: reason };
@@ -254,6 +266,22 @@ export class AutoResponseGeneratorService {
     }));
   }
 
+  /**
+   * Devuelve el `code` estable de un error si viene de una `ApiException`
+   * (formato `tikora-api.md` §1). Para cualquier otra cosa devuelve null —
+   * el caller decide cómo clasificar.
+   */
+  private errorCode(err: unknown): string | null {
+    if (err instanceof ApiException) {
+      const body = err.getResponse();
+      if (body && typeof body === 'object' && 'code' in body) {
+        const code = (body as { code: unknown }).code;
+        if (typeof code === 'string') return code;
+      }
+    }
+    return null;
+  }
+
   private emitFailed(
     ticket: TicketDocument,
     reason: AiResponseFailedEvent['reason'],
@@ -265,5 +293,56 @@ export class AutoResponseGeneratorService {
       reason,
       detail,
     } satisfies AiResponseFailedEvent);
+  }
+
+  /**
+   * Persiste un `AiResponse` con `estado: 'fallida'` cuando agotamos
+   * retries del LLM o el output sigue inválido tras los reintentos
+   * correctivos. Sirve solo de auditoría: el ticket queda en `escalado`
+   * y no es accionable desde el panel de "Sugerencia IA"
+   * (`getCurrentForTicket` filtra `fallida`). Si por algo el insert mismo
+   * falla, lo logueamos y seguimos — el evento `AiResponseFailed` igual
+   * notifica al admin, así que la falla queda visible incluso sin doc.
+   */
+  private async persistFailure(args: {
+    ticket: TicketDocument;
+    hits: KbSearchHit[];
+    model: string;
+    promptVersion: string;
+    temperature: number;
+    reason: 'api_error' | 'validation_error';
+    detail: string;
+  }): Promise<void> {
+    try {
+      await this.aiResponseModel.create({
+        tenantId: args.ticket.tenantId,
+        ticketId: args.ticket._id as Types.ObjectId,
+        estado: 'fallida',
+        respondable: false,
+        motivoNoRespondable: null,
+        originalAiContent: null,
+        content: null,
+        confianza: 0,
+        sourceChunks: this.toSourceChunks(args.hits, []),
+        modelo: args.model,
+        promptVersion: args.promptVersion,
+        temperature: args.temperature,
+        // Sin output: tokens y latencia son los del último intento perdido,
+        // no los tenemos en la firma del catch (el AiClient no los expone
+        // en el error). Quedan en 0 y el `failureDetail` lleva el mensaje.
+        tokensInput: 0,
+        tokensInputCached: 0,
+        tokensOutput: 0,
+        latencyMs: 0,
+        failureReason: args.reason,
+        failureDetail: args.detail,
+      });
+    } catch (err) {
+      this.logger.error(
+        `No se pudo persistir AiResponse fallida ticketId=${args.ticket._id.toString()}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 }
