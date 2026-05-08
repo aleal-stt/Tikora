@@ -142,6 +142,7 @@ export class AutoResponseGeneratorService {
         cacheSystemPrompt: cacheEnabled,
         outputSchema: autoResponseOutputSchema,
         metadata: {
+          tenantId: ticket.tenantId.toString(),
           ticketId: ticket._id.toString(),
           promptVersion,
           purpose: 'auto-response',

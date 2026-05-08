@@ -4,8 +4,16 @@ import OpenAI, { APIError } from 'openai';
 import { z } from 'zod';
 import { ApiException } from '../../common/exceptions/api.exception';
 import type { Env } from '../../config/env.schema';
+import { AiCallLogService } from './ai-call-log.service';
 
 export interface GenerateMetadata {
+  /**
+   * Tenant que dispara la llamada. Opcional para permitir invocaciones
+   * sin contexto (tests integrados, scripts), pero los flujos productivos
+   * deberían pasarlo siempre — si falta, el log de auditoría queda sin
+   * filtro multi-tenant.
+   */
+  tenantId?: string;
   ticketId?: string;
   promptVersion: string;
   purpose: 'classification' | 'auto-response' | 'review';
@@ -84,7 +92,10 @@ export class AiClientService {
   private readonly logger = new Logger(AiClientService.name);
   private readonly client: OpenAI | null;
 
-  constructor(private readonly config: ConfigService<Env, true>) {
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    private readonly callLog: AiCallLogService,
+  ) {
     const apiKey = this.config.get('LLM_API_KEY', { infer: true });
     if (!apiKey) {
       // Sin API key el servicio queda en modo "no disponible". El caller
@@ -157,9 +168,27 @@ export class AiClientService {
       }
     }
 
-    this.logger.warn(
-      `AiClient ${params.metadata.purpose} falló tras reintentos: ${this.errorMessage(lastError)}`,
-    );
+    const errMessage = this.errorMessage(lastError);
+    this.logger.warn(`AiClient ${params.metadata.purpose} falló tras reintentos: ${errMessage}`);
+    // Auditoría — `generateStructured` no agrega otro log para api_error
+    // porque éste ya cubre el caso (la llamada al LLM nunca dio output válido).
+    await this.callLog.record({
+      tenantId: params.metadata.tenantId ?? '',
+      ticketId: params.metadata.ticketId ?? null,
+      purpose: params.metadata.purpose,
+      modelo: params.model,
+      promptVersion: params.metadata.promptVersion,
+      temperature: params.temperature ?? 0,
+      maxTokens: params.maxTokens ?? 1024,
+      tokensInput: 0,
+      tokensInputCached: 0,
+      tokensOutput: 0,
+      latencyMs: Date.now() - start,
+      retries: maxRetries,
+      outcome: 'api_error',
+      errorCode: 'AI_API_ERROR',
+      errorMessage: errMessage,
+    });
     throw new ApiException(
       HttpStatus.SERVICE_UNAVAILABLE,
       'AI_API_ERROR',
@@ -182,6 +211,26 @@ export class AiClientService {
 
       const parsed = this.tryParse(result.text, params.outputSchema);
       if (parsed.ok) {
+        // Log de auditoría del round-trip exitoso. Si hubo validation
+        // retries previos, los logueamos por separado en el catch del
+        // siguiente loop (acá ya salimos con éxito).
+        await this.callLog.record({
+          tenantId: params.metadata.tenantId ?? '',
+          ticketId: params.metadata.ticketId ?? null,
+          purpose: params.metadata.purpose,
+          modelo: params.model,
+          promptVersion: params.metadata.promptVersion,
+          temperature: params.temperature ?? 0,
+          maxTokens: params.maxTokens ?? 1024,
+          tokensInput: result.tokensInput,
+          tokensInputCached: result.tokensInputCached,
+          tokensOutput: result.tokensOutput,
+          latencyMs: result.latencyMs,
+          retries: totalRetries,
+          outcome: 'ok',
+          errorCode: null,
+          errorMessage: null,
+        });
         return {
           ...result,
           retries: totalRetries,
@@ -199,6 +248,26 @@ export class AiClientService {
         lastIssues ?? 'desconocido'
       }`,
     );
+    // El último round-trip succedió a nivel transport pero el output no
+    // pasó schema. Lo logueamos como validation_failure usando el último
+    // resultado que tuvimos.
+    await this.callLog.record({
+      tenantId: params.metadata.tenantId ?? '',
+      ticketId: params.metadata.ticketId ?? null,
+      purpose: params.metadata.purpose,
+      modelo: params.model,
+      promptVersion: params.metadata.promptVersion,
+      temperature: params.temperature ?? 0,
+      maxTokens: params.maxTokens ?? 1024,
+      tokensInput: lastResult?.tokensInput ?? 0,
+      tokensInputCached: lastResult?.tokensInputCached ?? 0,
+      tokensOutput: lastResult?.tokensOutput ?? 0,
+      latencyMs: lastResult?.latencyMs ?? 0,
+      retries: totalRetries,
+      outcome: 'validation_failure',
+      errorCode: 'AI_OUTPUT_INVALID',
+      errorMessage: lastIssues,
+    });
     throw new ApiException(
       HttpStatus.UNPROCESSABLE_ENTITY,
       'AI_OUTPUT_INVALID',

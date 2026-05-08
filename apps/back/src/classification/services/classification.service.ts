@@ -119,6 +119,7 @@ export class ClassificationService {
         cacheSystemPrompt: cacheEnabled,
         outputSchema: classificationOutputSchema,
         metadata: {
+          tenantId: ticket.tenantId.toString(),
           ticketId: ticket._id.toString(),
           promptVersion,
           purpose: 'classification',
