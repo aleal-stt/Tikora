@@ -12,9 +12,20 @@ export default defineConfig(() => ({
     host: 'localhost',
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        // Puerto del back configurable por env: el `.env.example` documenta
+        // 3001 como default pero el `.env` del repo corre en 3002. Setear
+        // `BACK_PORT=3002` antes de `nx serve front` lo apunta correctamente.
+        target: `http://localhost:${process.env.BACK_PORT ?? '3001'}`,
         changeOrigin: true,
       },
+    },
+    // En sistemas con `fs.inotify.max_user_watches` bajo (WSL, contenedores,
+    // algunas distros) Vite revienta con ENOSPC al arrancar. Polling cuesta
+    // ~5% más de CPU que el watcher nativo pero arranca siempre. Se desactiva
+    // con `VITE_USE_POLLING=false` cuando el sistema soporta inotify.
+    watch: {
+      usePolling: process.env.VITE_USE_POLLING !== 'false',
+      interval: 500,
     },
   },
   preview: {
