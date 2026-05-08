@@ -2,6 +2,7 @@ import {
   AdjustmentsHorizontalIcon,
   BookOpenIcon,
   BuildingOffice2Icon,
+  ChartBarIcon,
   UsersIcon,
 } from '@heroicons/react/24/outline';
 import { NavLink, Outlet } from 'react-router-dom';
@@ -14,6 +15,7 @@ interface AdminNavItem {
 }
 
 const NAV_ITEMS: AdminNavItem[] = [
+  { to: '/admin/metricas', label: 'Métricas', icon: ChartBarIcon },
   { to: '/admin/usuarios', label: 'Usuarios', icon: UsersIcon },
   { to: '/admin/areas', label: 'Áreas', icon: BuildingOffice2Icon },
   { to: '/admin/kb', label: 'Base de conocimiento', icon: BookOpenIcon },
