@@ -17,6 +17,21 @@ export async function getTicketAiResponse(ticketId: string): Promise<AiResponse 
   }
 }
 
+/**
+ * Devuelve la última `AiResponse` en estado `fallida` del ticket.
+ * Endpoint admin-only — para cualquier otro rol el back devuelve 403.
+ * Tratamos 404 como `null` (sin fallidas) y 403 también como `null`
+ * (caller sin permiso → ocultamos el panel sin error).
+ */
+export async function getTicketFailedAiResponse(ticketId: string): Promise<AiResponse | null> {
+  try {
+    return await apiFetch<AiResponse>(`/tickets/${ticketId}/ai-response/failed`);
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 404 || err.status === 403)) return null;
+    throw err;
+  }
+}
+
 export async function approveAiResponse(id: string) {
   return apiFetch<AiResponse>(`/ai-responses/${id}/approve`, {
     method: 'PATCH',

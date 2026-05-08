@@ -5,10 +5,12 @@ import {
   approveAiResponseWithChanges,
   discardAiResponse,
   getTicketAiResponse,
+  getTicketFailedAiResponse,
 } from './ai-responses-api';
 
 export const aiResponseKeys = {
   byTicket: (ticketId: string) => ['ai-response', 'by-ticket', ticketId] as const,
+  failedByTicket: (ticketId: string) => ['ai-response', 'failed-by-ticket', ticketId] as const,
 };
 
 /**
@@ -21,6 +23,20 @@ export function useTicketAiResponse(ticketId: string | undefined) {
     queryKey: aiResponseKeys.byTicket(ticketId ?? ''),
     queryFn: () => getTicketAiResponse(ticketId as string),
     enabled: Boolean(ticketId),
+  });
+}
+
+/**
+ * Variante admin-only — la usamos solo cuando el caller tiene rol
+ * admin (`enabled` lo controla el componente). El back devuelve 403
+ * para no-admins; el api-client mapea ese 403 a `null` para que el
+ * panel quede oculto sin error visible.
+ */
+export function useTicketFailedAiResponse(ticketId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: aiResponseKeys.failedByTicket(ticketId ?? ''),
+    queryFn: () => getTicketFailedAiResponse(ticketId as string),
+    enabled: Boolean(ticketId) && enabled,
   });
 }
 

@@ -63,6 +63,33 @@ export class AutoResponseService {
   ) {}
 
   /**
+   * Devuelve la última `AiResponse` del ticket en estado `fallida` para
+   * que el admin pueda inspeccionar la falla del LLM (modelo, tokens,
+   * detalle del error). Sólo admin — el resto de roles no tienen
+   * razón operativa para verla. Devuelve `null` si la última no es
+   * fallida o si el ticket no tiene ninguna.
+   */
+  async getLatestFailedForTicket(
+    caller: AuthenticatedUser,
+    ticketId: string,
+  ): Promise<AiResponseDto | null> {
+    if (caller.role !== 'admin') {
+      throw new ApiException(
+        HttpStatus.FORBIDDEN,
+        'AI_RESPONSE_FORBIDDEN',
+        'Solo admins pueden ver fallas de IA.',
+      );
+    }
+    const ticket = await this.findTicketOrFail(caller.tenantId, ticketId);
+    const ai = await this.aiResponseModel
+      .findOne({ tenantId: ticket.tenantId, ticketId: ticket._id, estado: 'fallida' })
+      .sort({ createdAt: -1 })
+      .exec();
+    if (!ai) return null;
+    return this.toResponse(ai);
+  }
+
+  /**
    * Devuelve la respuesta IA vigente del ticket, si hay una en estado
    * `sugerida`. Si la única que existe ya fue descartada/enviada,
    * retorna `null` (el endpoint mapea a 404).

@@ -47,6 +47,29 @@ export class AiResponsesController {
     return ai;
   }
 
+  /**
+   * Endpoint admin-only — habilita el panel de diagnóstico cuando el cron
+   * de auto-respuesta falló. Devuelve 404 si la última respuesta del
+   * ticket no es `fallida`, así el front decide si mostrar el panel.
+   */
+  @Roles('admin')
+  @Get('tickets/:id/ai-response/failed')
+  async getLatestFailedForTicket(
+    @CurrentUser() caller: AuthenticatedUser,
+    @Param('id') ticketId: string,
+  ): Promise<AiResponseDto> {
+    const ai = await this.autoResponse.getLatestFailedForTicket(caller, ticketId);
+    if (!ai) {
+      throw new NotFoundException({
+        statusCode: HttpStatus.NOT_FOUND,
+        code: 'AI_RESPONSE_NOT_FOUND',
+        message: 'El ticket no tiene una respuesta IA fallida.',
+        details: [],
+      });
+    }
+    return ai;
+  }
+
   @Roles('agente', 'lider', 'admin')
   @HttpCode(HttpStatus.OK)
   @Patch('ai-responses/:id/approve')

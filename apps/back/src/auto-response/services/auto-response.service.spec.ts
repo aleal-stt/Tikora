@@ -282,6 +282,42 @@ describe('AutoResponseService', () => {
     });
   });
 
+  describe('getLatestFailedForTicket', () => {
+    it('admin recibe la última fallida si existe', async () => {
+      const ticket = buildTicket();
+      const ai = buildAi({
+        ticketId: ticket._id,
+        estado: 'fallida',
+        respondable: false,
+        originalAiContent: null,
+        failureReason: 'api_error',
+        failureDetail: 'Gemini 503',
+      });
+      const { service } = buildHarness({ ai, ticket });
+      const result = await service.getLatestFailedForTicket(asAdmin(), ticket._id.toString());
+      expect(result?.estado).toBe('fallida');
+      expect(result?.failureReason).toBe('api_error');
+      expect(result?.failureDetail).toBe('Gemini 503');
+    });
+
+    it('admin recibe null si no hay fallida', async () => {
+      const ticket = buildTicket();
+      const { service } = buildHarness({ ai: null, ticket });
+      const result = await service.getLatestFailedForTicket(asAdmin(), ticket._id.toString());
+      expect(result).toBeNull();
+    });
+
+    it('AGE/LID reciben 403 — la falla es info de admin', async () => {
+      const ticket = buildTicket();
+      const { service } = buildHarness({ ticket });
+      const err = await service
+        .getLatestFailedForTicket(asAgentOf(new Types.ObjectId()), ticket._id.toString())
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(ApiException);
+      expect((err as ApiException).getStatus()).toBe(HttpStatus.FORBIDDEN);
+    });
+  });
+
   describe('getCurrentForTicket', () => {
     it('devuelve null si la última está descartada', async () => {
       const ticket = buildTicket();
