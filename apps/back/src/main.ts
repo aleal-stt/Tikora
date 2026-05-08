@@ -3,8 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
-import { ZodValidationPipe } from 'nestjs-zod';
+import { createZodValidationPipe } from 'nestjs-zod';
 import { AppModule } from './app/app.module';
+import { createZodValidationException } from './common/validation/zod-validation.factory';
 import { Env } from './config/env.schema';
 
 async function bootstrap() {
@@ -17,7 +18,14 @@ async function bootstrap() {
     origin: config.get('CORS_ORIGINS', { infer: true }),
     credentials: true,
   });
-  app.useGlobalPipes(new ZodValidationPipe());
+  // Pipe Zod global con shape de error alineado a `tikora-api.md` §1
+  // (`{statusCode, code, message, details}`). Sin esto, nestjs-zod
+  // devuelve `{statusCode, message, errors[]}` que rompe el manejo de
+  // errores unificado del front.
+  const TikoraZodValidationPipe = createZodValidationPipe({
+    createValidationException: createZodValidationException,
+  });
+  app.useGlobalPipes(new TikoraZodValidationPipe());
 
   const port = config.get('PORT', { infer: true });
   await app.listen(port);

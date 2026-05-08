@@ -43,12 +43,10 @@ function buildHarness(userOverrides?: Partial<Record<string, unknown>>) {
   const tenants = { getDefaultTenantId: vi.fn().mockResolvedValue(TENANT_ID) };
   const passwords = { compare: vi.fn().mockResolvedValue(true) };
   const refreshTokens = {
-    issue: vi
-      .fn()
-      .mockResolvedValue({
-        token: 'refresh.jwt',
-        expiresAt: new Date(Date.now() + 7 * 86400 * 1000),
-      }),
+    issue: vi.fn().mockResolvedValue({
+      token: 'refresh.jwt',
+      expiresAt: new Date(Date.now() + 7 * 86400 * 1000),
+    }),
     rotate: vi.fn(),
     revoke: vi.fn().mockResolvedValue(undefined),
     revokeAllForUser: vi.fn().mockResolvedValue(undefined),
