@@ -1,5 +1,6 @@
 import {
   AdjustmentsHorizontalIcon,
+  BookOpenIcon,
   BuildingOffice2Icon,
   UsersIcon,
 } from '@heroicons/react/24/outline';
@@ -15,6 +16,7 @@ interface AdminNavItem {
 const NAV_ITEMS: AdminNavItem[] = [
   { to: '/admin/usuarios', label: 'Usuarios', icon: UsersIcon },
   { to: '/admin/areas', label: 'Áreas', icon: BuildingOffice2Icon },
+  { to: '/admin/kb', label: 'Base de conocimiento', icon: BookOpenIcon },
   { to: '/admin/slas', label: 'SLAs', icon: AdjustmentsHorizontalIcon },
 ];
 

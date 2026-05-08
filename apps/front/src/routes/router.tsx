@@ -3,6 +3,7 @@ import { RequireAuth } from '../components/require-auth';
 import { RequireRole } from '../components/require-role';
 import { AreaDetailPage } from '../features/admin/pages/area-detail-page';
 import { AreasPage } from '../features/admin/pages/areas-page';
+import { KbPage } from '../features/admin/pages/kb-page';
 import { SlasPage } from '../features/admin/pages/slas-page';
 import { UsuariosPage } from '../features/admin/pages/usuarios-page';
 import { LoginPage } from '../features/auth/pages/login-page';
@@ -57,6 +58,7 @@ export const router = createBrowserRouter([
           { path: 'usuarios', element: <UsuariosPage /> },
           { path: 'areas', element: <AreasPage /> },
           { path: 'areas/:id', element: <AreaDetailPage /> },
+          { path: 'kb', element: <KbPage /> },
           { path: 'slas', element: <SlasPage /> },
         ],
       },
