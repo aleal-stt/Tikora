@@ -26,14 +26,16 @@ import { SlasForm } from '../components/slas-form';
  */
 export function SlasPage() {
   const callerRole = useAuthStore((s) => s.user?.role);
-  const callerAreaIds = useAuthStore((s) => s.user?.areaIds ?? []);
   const isAdmin = callerRole === 'admin';
 
   const areasQuery = useAreas({ limit: 100 });
   const [editing, setEditing] = useState<Area | null>(null);
 
-  function canEdit(area: Area) {
-    return isAdmin || (callerRole === 'lider' && callerAreaIds.includes(area.id));
+  // SLAs son política global de negocio: solo admin los edita. Antes
+  // permitíamos al líder editar los SLAs de áreas que lidera, pero el
+  // back ahora rechaza esa acción con 403 (defensa en profundidad).
+  function canEdit(_area: Area) {
+    return isAdmin;
   }
 
   return (

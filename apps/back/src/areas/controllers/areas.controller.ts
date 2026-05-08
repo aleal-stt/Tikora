@@ -137,8 +137,11 @@ export class AreasController {
   }
 
   // -------- SLAs --------
+  // Solo admin: los SLAs son política de negocio y afectan a todos los
+  // tickets del área (impactan reportes y obligaciones contractuales).
+  // Los líderes pueden solicitar el ajuste pero no aplicarlo.
 
-  @Roles('lider', 'admin')
+  @Roles('admin')
   @Patch(':id/slas')
   async updateSlas(
     @CurrentUser() caller: AuthenticatedUser,

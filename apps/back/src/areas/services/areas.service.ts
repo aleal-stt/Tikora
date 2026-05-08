@@ -269,8 +269,16 @@ export class AreasService {
   }
 
   async updateSlas(caller: AuthenticatedUser, areaId: string, slas: Slas): Promise<AreaResponse> {
+    // Defensa en profundidad: el controller ya restringe a admin, pero
+    // si un día se cambia el `@Roles` el service sigue rechazando.
+    if (caller.role !== 'admin') {
+      throw new ApiException(
+        HttpStatus.FORBIDDEN,
+        'SLAS_ADMIN_ONLY',
+        'Solo un administrador puede modificar los SLAs.',
+      );
+    }
     const area = await this.findOrFail(caller.tenantId, areaId);
-    this.assertLeaderManagesArea(caller, area);
     area.slas = slas;
     await area.save();
     return this.toAreaResponse(area);
