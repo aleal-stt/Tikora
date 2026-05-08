@@ -183,11 +183,24 @@ export class TicketsService {
     if (params.prioridad && params.prioridad.length > 0) {
       filter.prioridad = { $in: params.prioridad };
     }
-    if (params.areaId && params.areaId.length > 0 && caller.role !== 'agente') {
-      // AGE ya está restringido por sus áreas; LID/ADM pueden filtrar.
-      filter.areaId = {
-        $in: params.areaId.map((id) => new Types.ObjectId(id)),
-      };
+    if (params.areaId && params.areaId.length > 0) {
+      // ADM puede filtrar por cualquier área. LID puede filtrar **dentro
+      // de las que lidera** (intersección, no reemplazo) — antes el
+      // filtro de query reemplazaba el del rol y permitía a un líder
+      // listar tickets de áreas ajenas pasando `?areaId=...`. AGE no
+      // expone este filtro en la UI; el back lo ignora silenciosamente.
+      const requested = params.areaId.map((id) => new Types.ObjectId(id));
+      if (caller.role === 'admin') {
+        filter.areaId = { $in: requested };
+      } else if (caller.role === 'lider') {
+        const allowed = new Set(caller.areaIds);
+        const intersected = requested.filter((oid) => allowed.has(oid.toString()));
+        if (intersected.length === 0) {
+          // El líder pidió áreas que no lidera: lista vacía.
+          return { items: [], nextCursor: null };
+        }
+        filter.areaId = { $in: intersected };
+      }
     }
     if (params.assignedToMe) {
       filter.assignedAgentId = new Types.ObjectId(caller.userId);
