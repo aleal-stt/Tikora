@@ -9,6 +9,7 @@ import { Skeleton } from '../../../components/ui/skeleton';
 import { Textarea } from '../../../components/ui/textarea';
 import { ApiError } from '../../../lib/api-client';
 import { useAuthStore } from '../../../stores/auth.store';
+import { useTicketAiResponse } from '../api/use-ai-responses';
 import {
   useAddInteraction,
   useCancelTicket,
@@ -18,6 +19,7 @@ import {
   useTakeTicket,
   useTicket,
 } from '../api/use-tickets';
+import { AiSuggestionPanel } from '../components/ai-suggestion-panel';
 import { EstadoBadge } from '../components/estado-badge';
 import { PrioridadBadge } from '../components/prioridad-badge';
 import { SlaIndicator } from '../components/sla-indicator';
@@ -33,6 +35,7 @@ export function TicketDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const ticketQ = useTicket(id);
   const interactionsQ = useInteractions(id);
+  const aiResponseQ = useTicketAiResponse(id);
   const me = useAuthStore((s) => s.user);
 
   if (ticketQ.isPending) {
@@ -82,6 +85,14 @@ export function TicketDetailPage() {
           <p className="whitespace-pre-wrap text-sm text-slate-700">{ticket.cuerpo}</p>
         </CardContent>
       </Card>
+
+      {aiResponseQ.data && aiResponseQ.data.estado === 'sugerida' && (
+        <AiSuggestionPanel
+          ticketId={ticket.id}
+          aiResponse={aiResponseQ.data}
+          canAct={operatesOnArea}
+        />
+      )}
 
       <Card>
         <CardHeader>
