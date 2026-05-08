@@ -188,6 +188,7 @@ export class ClassificationService {
         outcome: 'ok',
         confianza: normalized.confianza,
         toEstado: 'escalado',
+        areaName: targetArea.name,
       });
 
       this.events.emit(NOTIFICATION_EVENTS.TicketClassified, {
@@ -318,7 +319,13 @@ export class ClassificationService {
 
   private async emitClassifiedEvent(
     ticket: TicketDocument,
-    extra: { outcome: string; confianza: number | null; toEstado: string },
+    extra: {
+      outcome: string;
+      confianza: number | null;
+      toEstado: string;
+      /** Nombre del área asignada — solo presente en el happy path. */
+      areaName?: string;
+    },
   ): Promise<void> {
     try {
       await this.interactions.appendSystemEvent({
@@ -327,8 +334,12 @@ export class ClassificationService {
         eventName: 'TicketClassifiedByAi',
         fromEstado: 'recibido',
         toEstado: extra.toEstado,
-        extra: { outcome: extra.outcome, confianza: extra.confianza },
-        content: this.buildEventContent(extra.outcome, extra.toEstado),
+        extra: {
+          outcome: extra.outcome,
+          confianza: extra.confianza,
+          ...(extra.areaName ? { areaName: extra.areaName } : {}),
+        },
+        content: this.buildEventContent(extra.outcome, extra.toEstado, extra.areaName),
       });
     } catch (err) {
       this.logger.warn(
@@ -339,8 +350,15 @@ export class ClassificationService {
     }
   }
 
-  private buildEventContent(outcome: string, toEstado: string): string {
-    if (outcome === 'ok') return 'IA clasificó el ticket y lo escaló al área correspondiente.';
+  private buildEventContent(outcome: string, toEstado: string, areaName?: string): string {
+    if (outcome === 'ok') {
+      // Si llegamos al happy path siempre tenemos `areaName`. Defensivo
+      // por si un caller futuro emite `ok` sin pasarlo: caemos al texto
+      // genérico anterior.
+      return areaName
+        ? `IA clasificó el ticket y lo escaló al área "${areaName}".`
+        : 'IA clasificó el ticket y lo escaló al área correspondiente.';
+    }
     if (outcome === 'low_confidence')
       return 'IA tuvo baja confianza — el ticket espera revisión humana.';
     if (outcome === 'invalid_area')
