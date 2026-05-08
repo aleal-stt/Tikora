@@ -96,10 +96,10 @@ export class ClassificationService {
     }
 
     const promptVersion = this.config.get('CLASSIFICATION_PROMPT_VERSION', { infer: true });
-    const model = this.config.get('ANTHROPIC_MODEL_CLASSIFICATION', { infer: true });
-    const temperature = this.config.get('ANTHROPIC_TEMP_CLASSIFICATION', { infer: true });
-    const maxTokens = this.config.get('ANTHROPIC_MAX_TOKENS_CLASSIFICATION', { infer: true });
-    const cacheEnabled = this.config.get('ANTHROPIC_PROMPT_CACHE_ENABLED', { infer: true });
+    const model = this.config.get('LLM_MODEL_CLASSIFICATION', { infer: true });
+    const temperature = this.config.get('LLM_TEMP_CLASSIFICATION', { infer: true });
+    const maxTokens = this.config.get('LLM_MAX_TOKENS_CLASSIFICATION', { infer: true });
+    const cacheEnabled = this.config.get('LLM_PROMPT_CACHE_ENABLED', { infer: true });
 
     const systemPrompt = renderClassificationPromptV1(
       areas.map((a) => ({
@@ -272,10 +272,9 @@ export class ClassificationService {
   ): Promise<ClassifyResult> {
     const promptVersion =
       args.promptVersion ?? this.config.get('CLASSIFICATION_PROMPT_VERSION', { infer: true });
-    const modelo =
-      args.modelo ?? this.config.get('ANTHROPIC_MODEL_CLASSIFICATION', { infer: true });
+    const modelo = args.modelo ?? this.config.get('LLM_MODEL_CLASSIFICATION', { infer: true });
     const temperature =
-      args.temperature ?? this.config.get('ANTHROPIC_TEMP_CLASSIFICATION', { infer: true });
+      args.temperature ?? this.config.get('LLM_TEMP_CLASSIFICATION', { infer: true });
 
     await this.classificationModel.create({
       tenantId: ticket.tenantId,

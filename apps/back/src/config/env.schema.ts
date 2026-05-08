@@ -68,26 +68,39 @@ export const envSchema = z.object({
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
   REDIS_KEY_PREFIX: z.string().min(1).default('tikora'),
 
-  // Anthropic — `ANTHROPIC_API_KEY` puede quedar vacía en dev: si no está,
-  // la cola encola pero el processor cae al fallback humano para cada job.
-  ANTHROPIC_API_KEY: z.string().default(''),
-  ANTHROPIC_MODEL_CLASSIFICATION: z.string().min(1).default('claude-haiku-4-5-20251001'),
-  // Auto-respuesta — modelo más capaz que clasificación porque genera
-  // texto largo en español citando fuentes. Sonnet 4.6 es el default;
-  // ver tikora-ia.md §2.1.
-  ANTHROPIC_MODEL_RESPONSE: z.string().min(1).default('claude-sonnet-4-6'),
-  ANTHROPIC_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
-  ANTHROPIC_MAX_RETRIES: z.coerce.number().int().min(0).default(3),
-  ANTHROPIC_RETRY_BACKOFF_MS: z.coerce.number().int().positive().default(1000),
-  ANTHROPIC_MAX_TOKENS_CLASSIFICATION: z.coerce.number().int().positive().default(1024),
+  // LLM — proveedor agnóstico vía SDK OpenAI-compatible. Default apunta
+  // al endpoint OpenAI-compat de Gemini (gratis con rate limit razonable
+  // para MVP). Si `LLM_API_KEY` queda vacía en dev, el cliente de IA
+  // queda deshabilitado y los jobs caen al fallback humano. Ver
+  // `tikora-ia.md` §4. La abstracción se mantiene en `AiClientService`,
+  // así que cambiar de proveedor es solo flip de envs.
+  LLM_API_KEY: z.string().default(''),
+  LLM_BASE_URL: z
+    .string()
+    .url()
+    .default('https://generativelanguage.googleapis.com/v1beta/openai/'),
+  // Clasificación: tarea de selección + JSON corto. `flash-lite` es el
+  // más rápido y barato del free tier; latencia <500 ms en general.
+  LLM_MODEL_CLASSIFICATION: z.string().min(1).default('gemini-2.0-flash-lite'),
+  // Auto-respuesta: `flash` rinde bien escribiendo en español y siguiendo
+  // schemas estructurados; usar `flash-lite` aquí también funciona pero
+  // pierde un poco en redacción larga.
+  LLM_MODEL_RESPONSE: z.string().min(1).default('gemini-2.0-flash'),
+  LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  LLM_MAX_RETRIES: z.coerce.number().int().min(0).default(3),
+  LLM_RETRY_BACKOFF_MS: z.coerce.number().int().positive().default(1000),
+  LLM_MAX_TOKENS_CLASSIFICATION: z.coerce.number().int().positive().default(1024),
   // Auto-respuesta usa más tokens de salida que clasificación porque la
   // respuesta al usuario puede tener varios párrafos.
-  ANTHROPIC_MAX_TOKENS_RESPONSE: z.coerce.number().int().positive().default(2048),
-  ANTHROPIC_TEMP_CLASSIFICATION: z.coerce.number().min(0).max(2).default(0),
+  LLM_MAX_TOKENS_RESPONSE: z.coerce.number().int().positive().default(2048),
+  LLM_TEMP_CLASSIFICATION: z.coerce.number().min(0).max(2).default(0),
   // Auto-respuesta usa temperatura > 0 para texto natural pero baja
   // (0.3) para mantener la respuesta pegada a la información de la KB.
-  ANTHROPIC_TEMP_RESPONSE: z.coerce.number().min(0).max(2).default(0.3),
-  ANTHROPIC_PROMPT_CACHE_ENABLED: booleanString.default(true),
+  LLM_TEMP_RESPONSE: z.coerce.number().min(0).max(2).default(0.3),
+  // Prompt caching está documentado como feature de Anthropic. Los modelos
+  // free de OpenRouter no lo soportan, pero dejamos el flag para cuando
+  // un proveedor compatible se integre.
+  LLM_PROMPT_CACHE_ENABLED: booleanString.default(false),
 
   // Versión activa del prompt de clasificación. Se persiste en cada
   // `Classification` para auditar cambios entre versiones.

@@ -125,10 +125,10 @@ function buildHarness(opts: HarnessOpts) {
     get: (key: string) => {
       const map: Record<string, unknown> = {
         CLASSIFICATION_PROMPT_VERSION: 'v1',
-        ANTHROPIC_MODEL_CLASSIFICATION: 'claude-haiku-4-5-20251001',
-        ANTHROPIC_TEMP_CLASSIFICATION: 0,
-        ANTHROPIC_MAX_TOKENS_CLASSIFICATION: 1024,
-        ANTHROPIC_PROMPT_CACHE_ENABLED: true,
+        LLM_MODEL_CLASSIFICATION: 'claude-haiku-4-5-20251001',
+        LLM_TEMP_CLASSIFICATION: 0,
+        LLM_MAX_TOKENS_CLASSIFICATION: 1024,
+        LLM_PROMPT_CACHE_ENABLED: true,
         UMBRAL_CONFIANZA_CLASIFICACION: 0.7,
       };
       return map[key];

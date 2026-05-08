@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI, { APIError } from 'openai';
 import { z } from 'zod';
 import { ApiException } from '../../common/exceptions/api.exception';
 import type { Env } from '../../config/env.schema';
@@ -17,6 +17,13 @@ export interface GenerateParams {
   userMessage: string;
   maxTokens?: number;
   temperature?: number;
+  /**
+   * Si el proveedor lo soporta, marca el system prompt para cacheo. Los
+   * modelos free de OpenRouter no implementan caching — el flag queda
+   * en la firma para que el día que se integre un proveedor compatible
+   * (Anthropic, ciertos modelos premium) baste con activarlo por env
+   * sin tocar consumidores.
+   */
   cacheSystemPrompt?: boolean;
   metadata: GenerateMetadata;
 }
@@ -29,6 +36,10 @@ export interface GenerateStructuredParams<T> extends GenerateParams {
 export interface GenerateResult {
   text: string;
   tokensInput: number;
+  /**
+   * Tokens de input servidos desde caché del proveedor. Cero con
+   * proveedores que no soportan caching (caso actual con OpenRouter).
+   */
   tokensInputCached: number;
   tokensOutput: number;
   latencyMs: number;
@@ -49,32 +60,48 @@ export class AiClientUnavailableError extends Error {
 const TRANSIENT_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 
 /**
- * Wrapper único sobre el SDK de Anthropic. Encapsula retries con backoff
- * exponencial, validación Zod con prompt correctivo y emisión de métricas
- * de tokens/latencia. Es la única capa que habla con la API.
+ * Cliente único para LLMs vía API OpenAI-compatible. Default apunta al
+ * endpoint OpenAI-compat de Gemini (`generativelanguage.googleapis.com/
+ * v1beta/openai/`) para usar `gemini-2.0-flash` y `flash-lite` gratis en
+ * MVP. Cualquier proveedor que exponga el mismo shape de chat completions
+ * encaja cambiando `LLM_BASE_URL` y `LLM_API_KEY`.
+ *
+ * Encapsula:
+ *
+ * - Retries con backoff exponencial sobre errores transitorios.
+ * - Validación de salida estructurada con Zod + reintento con prompt
+ *   correctivo cuando el modelo devuelve algo fuera de schema.
+ * - Métricas de tokens / latencia (sin contenido sensible).
+ *
+ * Es la única capa que habla con el proveedor; todos los demás módulos
+ * (`classification`, `auto-response`, etc.) lo consumen vía DI.
+ *
+ * Match con `tikora-ia.md` §4 (la abstracción se mantiene; los nombres
+ * de variables `LLM_*` son los que aplican post-migración a OpenRouter).
  */
 @Injectable()
 export class AiClientService {
   private readonly logger = new Logger(AiClientService.name);
-  private readonly client: Anthropic | null;
+  private readonly client: OpenAI | null;
 
   constructor(private readonly config: ConfigService<Env, true>) {
-    const apiKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
+    const apiKey = this.config.get('LLM_API_KEY', { infer: true });
     if (!apiKey) {
       // Sin API key el servicio queda en modo "no disponible". El caller
       // debe estar preparado para `AiClientUnavailableError` y caer al
       // fallback humano (ver `tikora-ia.md` §5.6).
       this.client = null;
       this.logger.warn(
-        'ANTHROPIC_API_KEY no configurada — AiClientService deshabilitado, los jobs caerán al fallback humano.',
+        'LLM_API_KEY no configurada — AiClientService deshabilitado, los jobs caerán al fallback humano.',
       );
       return;
     }
-    this.client = new Anthropic({
+    this.client = new OpenAI({
       apiKey,
-      timeout: this.config.get('ANTHROPIC_TIMEOUT_MS', { infer: true }),
-      // Manejamos retries en este service para aplicar backoff con jitter
-      // y para combinarlos con la validación correctiva de Zod.
+      baseURL: this.config.get('LLM_BASE_URL', { infer: true }),
+      timeout: this.config.get('LLM_TIMEOUT_MS', { infer: true }),
+      // Manejamos retries en este service para combinarlos con la
+      // validación correctiva de Zod.
       maxRetries: 0,
     });
   }
@@ -85,42 +112,38 @@ export class AiClientService {
 
   async generate(params: GenerateParams): Promise<GenerateResult> {
     if (!this.client) {
-      throw new AiClientUnavailableError('Anthropic client no inicializado.');
+      throw new AiClientUnavailableError('LLM client no inicializado.');
     }
 
-    const maxRetries = this.config.get('ANTHROPIC_MAX_RETRIES', { infer: true });
-    const backoffMs = this.config.get('ANTHROPIC_RETRY_BACKOFF_MS', { infer: true });
+    const maxRetries = this.config.get('LLM_MAX_RETRIES', { infer: true });
+    const backoffMs = this.config.get('LLM_RETRY_BACKOFF_MS', { infer: true });
 
     const start = Date.now();
     let lastError: unknown;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const response = await this.client.messages.create({
+        const response = await this.client.chat.completions.create({
           model: params.model,
           max_tokens: params.maxTokens ?? 1024,
           temperature: params.temperature ?? 0,
-          system: params.cacheSystemPrompt
-            ? [
-                {
-                  type: 'text',
-                  text: params.systemPrompt,
-                  cache_control: { type: 'ephemeral' },
-                },
-              ]
-            : params.systemPrompt,
-          messages: [{ role: 'user', content: params.userMessage }],
+          messages: [
+            { role: 'system', content: params.systemPrompt },
+            { role: 'user', content: params.userMessage },
+          ],
         });
 
-        const text = response.content
-          .map((block) => (block.type === 'text' ? block.text : ''))
-          .join('');
+        const text = response.choices[0]?.message?.content ?? '';
+        const usage = response.usage;
 
         return {
           text,
-          tokensInput: response.usage.input_tokens,
+          tokensInput: usage?.prompt_tokens ?? 0,
+          // Algunos providers reportan cache hits en `prompt_tokens_details`
+          // (estilo OpenAI); si no, queda en 0.
           tokensInputCached:
-            (response.usage as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
-          tokensOutput: response.usage.output_tokens,
+            (usage?.prompt_tokens_details as { cached_tokens?: number } | undefined)
+              ?.cached_tokens ?? 0,
+          tokensOutput: usage?.completion_tokens ?? 0,
           latencyMs: Date.now() - start,
           retries: attempt,
         };
@@ -208,7 +231,9 @@ export class AiClientService {
   /**
    * Extrae el primer bloque JSON del texto. Tolerante a respuestas que
    * vienen envueltas en markdown (` ```json ... ``` `) o con texto previo,
-   * aunque el prompt pide JSON puro.
+   * aunque el prompt pide JSON puro. Los modelos open-source son menos
+   * disciplinados con eso, así que el extractor es la primera línea de
+   * defensa antes del reintento correctivo.
    */
   private extractJson(text: string): string {
     const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -222,6 +247,9 @@ export class AiClientService {
   }
 
   private isTransient(err: unknown): boolean {
+    if (err instanceof APIError) {
+      return typeof err.status === 'number' && TRANSIENT_STATUS.has(err.status);
+    }
     if (err && typeof err === 'object' && 'status' in err) {
       const status = (err as { status?: number }).status;
       if (typeof status === 'number') return TRANSIENT_STATUS.has(status);

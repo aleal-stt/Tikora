@@ -122,10 +122,10 @@ export class AutoResponseGeneratorService {
 
     const systemPrompt = renderResponsePromptV1();
     const promptVersion = this.config.get('RESPONSE_PROMPT_VERSION', { infer: true });
-    const model = this.config.get('ANTHROPIC_MODEL_RESPONSE', { infer: true });
-    const temperature = this.config.get('ANTHROPIC_TEMP_RESPONSE', { infer: true });
-    const maxTokens = this.config.get('ANTHROPIC_MAX_TOKENS_RESPONSE', { infer: true });
-    const cacheEnabled = this.config.get('ANTHROPIC_PROMPT_CACHE_ENABLED', { infer: true });
+    const model = this.config.get('LLM_MODEL_RESPONSE', { infer: true });
+    const temperature = this.config.get('LLM_TEMP_RESPONSE', { infer: true });
+    const maxTokens = this.config.get('LLM_MAX_TOKENS_RESPONSE', { infer: true });
+    const cacheEnabled = this.config.get('LLM_PROMPT_CACHE_ENABLED', { infer: true });
 
     // 4) Llamada al modelo
     let result;
