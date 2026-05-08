@@ -3,6 +3,7 @@ export * from './lib/areas';
 export * from './lib/attachments';
 export * from './lib/auth';
 export * from './lib/classification';
+export * from './lib/feedback';
 export * from './lib/interactions';
 export * from './lib/kb';
 export * from './lib/metrics';

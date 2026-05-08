@@ -10,6 +10,7 @@ import { Textarea } from '../../../components/ui/textarea';
 import { ApiError } from '../../../lib/api-client';
 import { useAuthStore } from '../../../stores/auth.store';
 import { useTicketAiResponse, useTicketFailedAiResponse } from '../api/use-ai-responses';
+import { useClassificationFeedback } from '../api/use-feedback';
 import {
   useAddInteraction,
   useCancelTicket,
@@ -21,6 +22,7 @@ import {
 } from '../api/use-tickets';
 import { AiFailurePanel } from '../components/ai-failure-panel';
 import { AiSuggestionPanel } from '../components/ai-suggestion-panel';
+import { ClassificationFeedbackPanel } from '../components/classification-feedback-panel';
 import { EstadoBadge } from '../components/estado-badge';
 import { PrioridadBadge } from '../components/prioridad-badge';
 import { SlaIndicator } from '../components/sla-indicator';
@@ -41,6 +43,8 @@ export function TicketDetailPage() {
   // Solo el admin consulta el endpoint de fallidas; el back igual filtra
   // por rol pero el `enabled` evita la request si no aporta.
   const aiFailureQ = useTicketFailedAiResponse(id, me?.role === 'admin');
+  const canFeedback = me?.role === 'agente' || me?.role === 'lider' || me?.role === 'admin';
+  const feedbackQ = useClassificationFeedback(id, canFeedback);
 
   if (ticketQ.isPending) {
     return <Skeleton className="h-96 w-full" />;
@@ -99,6 +103,10 @@ export function TicketDetailPage() {
       )}
 
       {aiFailureQ.data && <AiFailurePanel aiResponse={aiFailureQ.data} />}
+
+      {canFeedback && ticket.prioridad !== null && (
+        <ClassificationFeedbackPanel ticketId={ticket.id} existing={feedbackQ.data ?? null} />
+      )}
 
       <Card>
         <CardHeader>

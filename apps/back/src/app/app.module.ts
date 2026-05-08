@@ -14,6 +14,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { ClassificationModule } from '../classification/classification.module';
 import { Env, validateEnv } from '../config/env.schema';
 import { CountersModule } from '../counters/counters.module';
+import { FeedbackModule } from '../feedback/feedback.module';
 import { HealthModule } from '../health/health.module';
 import { InteractionsModule } from '../interactions/interactions.module';
 import { KbModule } from '../kb/kb.module';
@@ -76,6 +77,7 @@ import { UsersModule } from '../users/users.module';
     HealthModule,
     SeedModule,
     SlaModule,
+    FeedbackModule,
   ],
   providers: [
     // Orden importa: Throttler primero corta abuso antes de gastar CPU
