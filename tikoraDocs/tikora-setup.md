@@ -238,15 +238,53 @@ Usado por BullMQ (colas) y por los SSE tickets (TTL 90 s).
 
 > Recomendación de seguridad: usar una key distinta para dev y prod. En dev limitarla con un budget bajo desde la consola.
 
-### 4.4 Resend (correo transaccional)
+### 4.4 Correo transaccional (SMTP)
 
-1. Crear cuenta en https://resend.com.
-2. Plan free: 3.000 correos/mes, 100/día.
-3. **Verificar dominio** en "Domains" → seguir instrucciones de DKIM/SPF en el DNS.
-4. Mientras se verifica el dominio, se puede usar el sender sandbox de Resend (`onboarding@resend.dev`) para pruebas.
-5. Copiar la API key a `RESEND_API_KEY` y configurar `EMAIL_FROM` con un remitente del dominio verificado.
+El backend manda correos vía SMTP genérico con `nodemailer`. La opción
+recomendada para piloto **gratis** es **Gmail con app password** (~500
+destinatarios por día sin costo). Cualquier proveedor SMTP funciona
+cambiando las envs (`SMTP_*`) — Outlook, Zoho, Brevo, servidor propio.
 
-> En `EMAIL_DELIVERY_MODE=log` (default en dev) los correos no salen: se imprimen en consola con su payload. Cambiar a `live` cuando se quiera probar el envío real.
+#### Setup con Gmail
+
+1. Activar 2FA en la cuenta de Gmail desde
+   https://myaccount.google.com/security.
+2. Generar un _app password_ en
+   https://myaccount.google.com/apppasswords (16 caracteres sin
+   espacios). Es distinto a la contraseña normal de la cuenta.
+3. Completar `.env` del back:
+
+   ```env
+   EMAIL_DELIVERY_MODE=live
+   EMAIL_FROM="Tikora <tikora.notif@gmail.com>"   # mismo email que SMTP_USER
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_SECURE=false
+   SMTP_USER=tikora.notif@gmail.com
+   SMTP_PASS=<app-password-de-16-chars>
+   ```
+
+   Importante: `EMAIL_FROM` y `SMTP_USER` deben coincidir — Gmail
+   bloquea el envío con remitentes que no son la cuenta autenticada
+   (anti-spoofing).
+
+4. Verificar que el envío funciona arrancando el back y disparando
+   cualquier flujo que mande email (alta de usuario, aprobación de
+   auto-respuesta).
+
+#### Cuotas y migración a futuro
+
+- Gmail gratuito: ~500 destinatarios/día, ~100 simultáneos. Suficiente
+  para piloto interno; si Tikora pasa a producción real conviene migrar
+  a un proveedor con dominio propio verificado (mejor reputación de IP,
+  sin riesgo de que Google rate-limitee la cuenta).
+- Alternativas drop-in cambiando solo las envs: **Brevo** (300/día
+  gratis permanente), **SendGrid** (100/día permanente), **Resend**
+  (3.000/mes con dominio propio verificado).
+
+> En `EMAIL_DELIVERY_MODE=log` (default en dev) los correos no salen:
+> se imprimen en consola con su payload. Cambiar a `live` solo cuando
+> el SMTP esté configurado y se quiera probar el envío real.
 
 ### 4.5 Sentry (opcional en dev)
 
@@ -418,17 +456,18 @@ pnpm exec nx run back:reindex-kb -- --tenantId <id> [--dry-run]
 
 ## 8. Troubleshooting
 
-| Síntoma                                         | Causa probable                                                           | Solución                                                                            |
-| ----------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `MongooseServerSelectionError` al arrancar back | Mongo no está corriendo o `MONGODB_URI` mal.                             | Verificar `docker compose ps` o probar con `mongosh "$MONGODB_URI"`.                |
-| Login responde 401 con cookies en dev           | Origen distinto entre front y back.                                      | Verificar que el front consume `/api/v1` (relativo) y el proxy de Vite está activo. |
-| `Vector search index not found`                 | El índice de Atlas no se creó o el nombre no coincide.                   | Re-crear con el nombre exacto de `MONGODB_VECTOR_INDEX_NAME`.                       |
-| `ANTHROPIC API error 402`                       | Sin saldo.                                                               | Cargar crédito en la consola de Anthropic.                                          |
-| `Email not delivered` y no falla                | `EMAIL_DELIVERY_MODE=log`.                                               | Cambiar a `live` y verificar dominio en Resend.                                     |
-| Worker no procesa jobs                          | Redis no está, o `REDIS_URL` apunta a otro lado.                         | `redis-cli ping` debe responder `PONG`.                                             |
-| `Cannot find module '@tikora/core'`             | Paths de TS o build del paquete sin compilar.                            | Re-ejecutar `pnpm install` y verificar `tsconfig.base.json`.                        |
-| Cookie de refresh no aparece en el browser      | Falta `credentials: 'include'` en fetch o el back no setea `Set-Cookie`. | Revisar interceptor de `lib/api-client.ts` y CORS del back.                         |
-| HMR del front no recarga                        | Permisos de inotify en Linux.                                            | `sudo sysctl fs.inotify.max_user_watches=524288`.                                   |
+| Síntoma                                                               | Causa probable                                                           | Solución                                                                                    |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `MongooseServerSelectionError` al arrancar back                       | Mongo no está corriendo o `MONGODB_URI` mal.                             | Verificar `docker compose ps` o probar con `mongosh "$MONGODB_URI"`.                        |
+| Login responde 401 con cookies en dev                                 | Origen distinto entre front y back.                                      | Verificar que el front consume `/api/v1` (relativo) y el proxy de Vite está activo.         |
+| `Vector search index not found`                                       | El índice de Atlas no se creó o el nombre no coincide.                   | Re-crear con el nombre exacto de `MONGODB_VECTOR_INDEX_NAME`.                               |
+| `ANTHROPIC API error 402`                                             | Sin saldo.                                                               | Cargar crédito en la consola de Anthropic.                                                  |
+| `Email not delivered` y no falla                                      | `EMAIL_DELIVERY_MODE=log`.                                               | Cambiar a `live` y configurar `SMTP_*` (ver §4.4).                                          |
+| `Invalid login: 535-5.7.8 Username and Password not accepted` (Gmail) | Estás usando la contraseña normal de Gmail, no un app password.          | Generar app password en https://myaccount.google.com/apppasswords y pegarlo en `SMTP_PASS`. |
+| Worker no procesa jobs                                                | Redis no está, o `REDIS_URL` apunta a otro lado.                         | `redis-cli ping` debe responder `PONG`.                                                     |
+| `Cannot find module '@tikora/core'`                                   | Paths de TS o build del paquete sin compilar.                            | Re-ejecutar `pnpm install` y verificar `tsconfig.base.json`.                                |
+| Cookie de refresh no aparece en el browser                            | Falta `credentials: 'include'` en fetch o el back no setea `Set-Cookie`. | Revisar interceptor de `lib/api-client.ts` y CORS del back.                                 |
+| HMR del front no recarga                                              | Permisos de inotify en Linux.                                            | `sudo sysctl fs.inotify.max_user_watches=524288`.                                           |
 
 ---
 

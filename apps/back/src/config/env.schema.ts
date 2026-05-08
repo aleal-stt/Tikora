@@ -50,10 +50,21 @@ export const envSchema = z.object({
   THROTTLE_DEFAULT_TTL_SECONDS: z.coerce.number().int().positive().default(60),
   THROTTLE_DEFAULT_LIMIT: z.coerce.number().int().positive().default(120),
 
-  // Email — el adapter `live` queda como placeholder hasta que se integre
-  // Resend en un sprint posterior. En dev quedamos con `log`.
+  // Email — `log` imprime a stdout (dev). `live` usa el adapter SMTP
+  // (`SmtpEmailDeliverer`) con las variables `SMTP_*` de abajo. Para
+  // free tier recomendamos Gmail con app password (~500 emails/día).
   EMAIL_DELIVERY_MODE: z.enum(['log', 'live']).default('log'),
   EMAIL_FROM: z.string().min(1).default('Tikora <noreply@empresa.com>'),
+
+  // SMTP — solo se usa cuando EMAIL_DELIVERY_MODE=live. En dev quedan
+  // vacías y el deliverer SMTP no se instancia. Defaults apuntan al
+  // submission de Gmail (TLS por STARTTLS en 587).
+  SMTP_HOST: z.string().default('smtp.gmail.com'),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  // `false` ⇒ STARTTLS sobre 587. `true` ⇒ TLS directo (típico 465).
+  SMTP_SECURE: booleanString.default(false),
+  SMTP_USER: z.string().default(''),
+  SMTP_PASS: z.string().default(''),
 
   // Fase activa de la IA: 1 = clasificación automática + escalado humano,
   // 2 = clasificación + auto-respuesta sugerida, 3 = auto-respuesta autónoma.

@@ -25,18 +25,17 @@ export class EmailService {
 
   /**
    * Envía la auto-respuesta al solicitante. Devuelve el `messageId` que
-   * provee el deliverer (en `live` viene de Resend; en `log` queda
-   * `null` y eso queda anotado en `AiResponse.emailMessageId`).
+   * provee el deliverer (SMTP devuelve el header `Message-Id`; el log
+   * deliverer queda `null`). Se persiste en `AiResponse.emailMessageId`
+   * para correlacionar respuestas que el solicitante mande luego.
    */
   async sendAutoResponseEmail(
     params: AutoResponseEmailParams,
   ): Promise<{ messageId: string | null }> {
     const subject = `Re: [${params.ticketShortCode}] ${params.asunto}`;
     const text = `Hola ${params.fullName},\n\n${params.body}\n\nSi necesitás más ayuda, respondé este correo y un agente continuará el caso.\n\n— Equipo Tikora`;
-    await this.deliverer.send({ to: params.to, subject, text });
-    // El deliverer actual (`log`) no devuelve messageId. El adapter de
-    // Resend en su sprint sí lo va a devolver — la firma queda lista.
-    return { messageId: null };
+    const result = await this.deliverer.send({ to: params.to, subject, text });
+    return { messageId: result.messageId };
   }
 
   async sendWelcomeEmail(
