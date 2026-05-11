@@ -72,6 +72,12 @@ export default defineConfig({
         // controller, que son literales y no leen de env). El bypass se
         // activa con esta flag y solo aplica al boot del back en E2E.
         E2E_NO_THROTTLE: 'true',
+        // Sin API key el cliente LLM queda deshabilitado y los jobs de
+        // clasificación caen al fallback humano. Evita timing races con
+        // la IA mientras los specs de tickets ejercitan el flujo manual.
+        // Si más adelante hace falta una suite específica de IA, se
+        // configura aparte con su propia env.
+        LLM_API_KEY: '',
       },
     },
     {

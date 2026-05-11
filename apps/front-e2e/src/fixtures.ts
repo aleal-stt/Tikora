@@ -1,3 +1,4 @@
+import type { APIRequestContext } from '@playwright/test';
 import { resolve } from 'node:path';
 
 // Roles disponibles en el seed E2E. `admin` viene del seed estándar
@@ -30,4 +31,22 @@ export const STORAGE_STATE_DIR = resolve(__dirname, '../.auth');
 
 export function storageStateFor(role: E2eRole): string {
   return resolve(STORAGE_STATE_DIR, `${role}.json`);
+}
+
+/**
+ * Devuelve un access token fresco loguándose como `role` contra la API.
+ * Necesario para todos los specs que pegan a endpoints normales: la
+ * cookie httpOnly solo autentica `/auth/refresh`, mientras que el resto
+ * del back exige `Authorization: Bearer <token>`. Hacer login (vs.
+ * reusar la cookie del storageState) evita problemas de cookies
+ * rotadas/revocadas entre tests del mismo describe.
+ */
+export async function getAccessToken(request: APIRequestContext, role: E2eRole): Promise<string> {
+  const creds = E2E_CREDENTIALS[role];
+  const response = await request.post('/api/v1/auth/login', { data: creds });
+  if (!response.ok()) {
+    throw new Error(`login para Bearer (${role}) falló con ${response.status()}`);
+  }
+  const body = (await response.json()) as { accessToken: string };
+  return body.accessToken;
 }
