@@ -26,6 +26,12 @@ export const envSchema = z.object({
   SEED_ADMIN_FULLNAME: z.string().min(1),
   SEED_ADMIN_PASSWORD: z.string().min(10),
 
+  // Crea usuarios extra (lider, agente, empleado) con password fija para
+  // suites E2E de Playwright. Nunca activar en producción — los emails y
+  // la password son conocidos. Ver `apps/front-e2e/` y la doc del seed.
+  SEED_E2E_USERS: booleanString.default(false),
+  SEED_E2E_PASSWORD: z.string().min(10).default('E2eTest!23'),
+
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(4).max(15).default(10),
 
   // Secretos JWT — generar con `openssl rand -hex 64`. El mínimo de 32 chars

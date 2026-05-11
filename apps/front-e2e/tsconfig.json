@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "sourceMap": false,
+    "outDir": "../../dist/out-tsc",
+    "allowJs": true,
+    "types": ["node"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true
+  },
+  "include": ["**/*.ts", "src/**/*.ts", "playwright.config.ts"],
+  "exclude": ["node_modules"]
+}

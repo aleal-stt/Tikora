@@ -31,6 +31,16 @@ export default defineConfig(() => ({
   preview: {
     port: 4300,
     host: 'localhost',
+    // Espeja el proxy del modo `server` para que el bundle de producción
+    // pueda llamar a `/api/...` (incluida la cookie httpOnly de refresh)
+    // sin tocar CORS. Usado por la suite E2E de Playwright y por probar
+    // el bundle localmente.
+    proxy: {
+      '/api': {
+        target: `http://localhost:${process.env.BACK_PORT ?? '3001'}`,
+        changeOrigin: true,
+      },
+    },
   },
   plugins: [react(), nxViteTsPaths(), nxCopyAssetsPlugin(['*.md'])],
   // Uncomment this if you are using workers.
