@@ -8,18 +8,22 @@ import { useMutation } from '@tanstack/react-query';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { logout } from '../features/auth/api/auth-api';
+import { NotificationBell } from '../features/notifications/components/notification-bell';
+import { useSseConnection } from '../features/notifications/hooks/use-sse-connection';
 import { cn } from '../lib/utils';
 import { useAuthStore } from '../stores/auth.store';
 
 /**
  * Layout principal autenticado. Header con marca/perfil/logout +
- * sidebar de navegación contextual al rol. Cuando llegue SSE en otro
- * sprint, este componente abre la conexión global.
+ * sidebar de navegación contextual al rol. Abre la conexión SSE global
+ * (decisión §23) para notificaciones en tiempo real.
  */
 export function AppShell() {
   const user = useAuthStore((s) => s.user);
   const hasRole = useAuthStore((s) => s.hasRole);
   const navigate = useNavigate();
+
+  useSseConnection();
 
   const logoutMutation = useMutation({
     mutationFn: logout,
@@ -36,6 +40,7 @@ export function AppShell() {
           Tikora
         </Link>
         <div className="flex items-center gap-3">
+          <NotificationBell />
           <div className="text-right">
             <div className="text-sm font-semibold text-slate-900">{user?.fullName}</div>
             <div className="text-xs text-slate-500">

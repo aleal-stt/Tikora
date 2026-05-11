@@ -20,7 +20,7 @@ import {
   type ListTicketsParams,
 } from './tickets-api';
 
-const ticketsKeys = {
+export const ticketsKeys = {
   all: ['tickets'] as const,
   list: (params: ListTicketsParams) => ['tickets', 'list', params] as const,
   mine: (params: ListTicketsParams) => ['tickets', 'mine', params] as const,
