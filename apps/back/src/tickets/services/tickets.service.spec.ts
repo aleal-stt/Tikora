@@ -153,6 +153,19 @@ function buildHarness(opts: HarnessOpts = {}) {
     emit: vi.fn(),
   };
 
+  // Stub de BusinessHoursService: devuelve opts BA constantes. Los
+  // tests verifican que `calculateSlaDeadline` se llamó; no nos
+  // importa el cálculo exacto del deadline acá (cubierto en
+  // business-hours.spec.ts).
+  const businessHours = {
+    getOptsForTenant: vi.fn().mockResolvedValue({
+      timezone: 'America/Argentina/Buenos_Aires',
+      dayStart: { hour: 7, minute: 0 },
+      dayEnd: { hour: 18, minute: 0 },
+    }),
+    optsFromSettings: vi.fn(),
+  };
+
   const service = new TicketsService(
     ticketModel as never,
     userModel as never,
@@ -160,6 +173,7 @@ function buildHarness(opts: HarnessOpts = {}) {
     counters as never,
     stateMachine,
     config as never,
+    businessHours as never,
     interactions as never,
     classificationQueue as never,
     events as never,

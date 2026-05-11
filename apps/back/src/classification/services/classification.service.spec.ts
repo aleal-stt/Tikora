@@ -135,12 +135,24 @@ function buildHarness(opts: HarnessOpts) {
     },
   };
 
+  // Stub de BusinessHoursService — opts BA constantes; el cálculo
+  // exacto está cubierto en business-hours.spec.ts.
+  const businessHours = {
+    getOptsForTenant: vi.fn().mockResolvedValue({
+      timezone: 'America/Argentina/Buenos_Aires',
+      dayStart: { hour: 7, minute: 0 },
+      dayEnd: { hour: 18, minute: 0 },
+    }),
+    optsFromSettings: vi.fn(),
+  };
+
   const service = new ClassificationService(
     ticketModel as never,
     areaModel as never,
     classificationModel as never,
     aiClient as never,
     config as never,
+    businessHours as never,
     interactions as never,
     events as never,
   );

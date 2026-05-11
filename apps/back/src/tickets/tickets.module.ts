@@ -2,6 +2,7 @@ import { forwardRef, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AreasModule } from '../areas/areas.module';
 import { ClassificationModule } from '../classification/classification.module';
+import { CommonModule } from '../common/common.module';
 import { CountersModule } from '../counters/counters.module';
 import { InteractionsModule } from '../interactions/interactions.module';
 import { UsersModule } from '../users/users.module';
@@ -18,6 +19,8 @@ import { TicketsService } from './services/tickets.service';
     UsersModule,
     AreasModule,
     CountersModule,
+    // BusinessHoursService para calcular slaDeadline en horas hábiles.
+    CommonModule,
     // forwardRef bilateral con InteractionsModule: emitimos system events
     // al transicionar tickets, e InteractionsModule consulta nuestro
     // modelo Ticket para validar permisos.

@@ -100,12 +100,30 @@ function buildHarness(opts: HarnessOpts = {}) {
 
   const events = { emit: vi.fn() };
 
+  // Stub de BusinessHoursService — devuelve opts BA constantes para
+  // cualquier tenant. Los tests existentes usan tiempos dentro del
+  // horario hábil BA (viernes 11:30 hora local), así que el cálculo
+  // en horas hábiles coincide con el wallclock para esos casos.
+  const businessHours = {
+    getOptsForTenant: vi.fn().mockResolvedValue({
+      timezone: 'America/Argentina/Buenos_Aires',
+      dayStart: { hour: 7, minute: 0 },
+      dayEnd: { hour: 18, minute: 0 },
+    }),
+    optsFromSettings: vi.fn().mockReturnValue({
+      timezone: 'America/Argentina/Buenos_Aires',
+      dayStart: { hour: 7, minute: 0 },
+      dayEnd: { hour: 18, minute: 0 },
+    }),
+  };
+
   const service = new SlaCheckerService(
     ticketModel as never,
     areaModel as never,
     tenantModel as never,
     config as never,
     events as never,
+    businessHours as never,
   );
 
   return { service, ticketModel, areaModel, tenantModel, events };

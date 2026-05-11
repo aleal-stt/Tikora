@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Area, AreaSchema } from '../areas/schemas/area.schema';
+import { CommonModule } from '../common/common.module';
 import { Tenant, TenantSchema } from '../tenants/schemas/tenant.schema';
 import { Ticket, TicketSchema } from '../tickets/schemas/ticket.schema';
 import { SlaCheckerService } from './services/sla-checker.service';
@@ -28,6 +29,8 @@ import { SlaSchedulerService } from './services/sla-scheduler.service';
       { name: Area.name, schema: AreaSchema },
       { name: Tenant.name, schema: TenantSchema },
     ]),
+    // BusinessHoursService para cálculos en horas/días hábiles (decisión §10).
+    CommonModule,
   ],
   providers: [SlaCheckerService, SlaSchedulerService],
   exports: [SlaCheckerService],

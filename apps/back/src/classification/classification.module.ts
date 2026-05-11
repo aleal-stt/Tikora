@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AiClientModule } from '../ai-client/ai-client.module';
 import { AreasModule } from '../areas/areas.module';
+import { CommonModule } from '../common/common.module';
 import type { Env } from '../config/env.schema';
 import { InteractionsModule } from '../interactions/interactions.module';
 import { TicketsModule } from '../tickets/tickets.module';
@@ -34,6 +35,9 @@ import { ClassificationService } from './services/classification.service';
     MongooseModule.forFeature([{ name: Classification.name, schema: ClassificationSchema }]),
     AiClientModule,
     AreasModule,
+    // BusinessHoursService para calcular slaDeadline en horas hábiles
+    // (decisión §10) al transicionar ticket → escalado/clasificado.
+    CommonModule,
     // forwardRef bilateral con TicketsModule: el processor consume el
     // modelo Ticket (vía MongooseModule exportado) y `TicketsService`
     // encola jobs en esta cola.

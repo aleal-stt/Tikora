@@ -19,6 +19,7 @@ import type {
 import { Model, QueryFilter, Types } from 'mongoose';
 import { Area, AreaDocument } from '../../areas/schemas/area.schema';
 import type { AuthenticatedUser } from '../../auth/types/auth.types';
+import { BusinessHoursService } from '../../common/business-hours.service';
 import { ApiException } from '../../common/exceptions/api.exception';
 import type { Env } from '../../config/env.schema';
 import { ClassificationQueueService } from '../../classification/services/classification-queue.service';
@@ -60,6 +61,7 @@ export class TicketsService {
     private readonly counters: CountersService,
     private readonly stateMachine: TicketStateMachineService,
     private readonly config: ConfigService<Env, true>,
+    private readonly businessHours: BusinessHoursService,
     // forwardRef requerido para resolver el ciclo TicketsModule ↔ InteractionsModule.
     @Inject(forwardRef(() => InteractionsService))
     private readonly interactions: InteractionsService,
@@ -621,7 +623,8 @@ export class TicketsService {
     ticket.areaId = targetArea._id;
     ticket.assignedAgentId = null;
     if (ticket.prioridad) {
-      ticket.slaDeadline = calculateSlaDeadline(ticket.prioridad, targetArea.slas);
+      const opts = await this.businessHours.getOptsForTenant(ticket.tenantId);
+      ticket.slaDeadline = calculateSlaDeadline(ticket.prioridad, targetArea.slas, opts);
       // El nuevo deadline reabre la ventana de alertas SLA — el cron debe
       // volver a notificar approaching/breach contra el plazo nuevo.
       ticket.slaApproachingNotifiedAt = null;
@@ -688,7 +691,8 @@ export class TicketsService {
     ticket.estado = 'escalado';
     ticket.areaId = targetArea._id;
     ticket.prioridad = input.prioridad;
-    ticket.slaDeadline = calculateSlaDeadline(input.prioridad, targetArea.slas);
+    const opts = await this.businessHours.getOptsForTenant(ticket.tenantId);
+    ticket.slaDeadline = calculateSlaDeadline(input.prioridad, targetArea.slas, opts);
     // Primera asignación de deadline — los flags ya son null pero los
     // dejamos explícitos para que el cron los lea correctamente.
     ticket.slaApproachingNotifiedAt = null;

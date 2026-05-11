@@ -4,6 +4,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Area, AreaDocument } from '../../areas/schemas/area.schema';
+import {
+  addBusinessDays,
+  businessHoursBetween,
+  type BusinessHoursOpts,
+} from '../../common/business-hours';
+import { BusinessHoursService } from '../../common/business-hours.service';
 import type { Env } from '../../config/env.schema';
 import {
   NOTIFICATION_EVENTS,
@@ -21,8 +27,14 @@ export interface SlaTickResult {
 }
 
 const MS_PER_HOUR = 60 * 60 * 1000;
-const MS_PER_DAY = 24 * MS_PER_HOUR;
 const MS_PER_MIN = 60 * 1000;
+
+interface TenantContext {
+  tenant: Pick<TenantDocument, '_id' | 'settings'>;
+  opts: BusinessHoursOpts;
+}
+
+type TenantContextMap = Map<string, TenantContext>;
 
 /**
  * Lógica del cron de SLA. Una corrida (`tick`) hace tres barridos
@@ -41,10 +53,11 @@ const MS_PER_MIN = 60 * 1000;
  * notificaciones (la query filtra por flag null y el update gana al
  * primer ejecutor).
  *
- * **Cálculo de umbrales:** wallclock — `calculateSlaDeadline` ya guarda
- * el deadline como timestamp wallclock (TODO de horas hábiles vive en
- * `tickets.sla.ts`). El % restante se computa contra el SLA total de la
- * prioridad expresado en horas wallclock.
+ * **Cálculo de umbrales:** horas hábiles en la TZ del tenant
+ * (decisión §10). El `slaDeadline` ya viene calculado en horas hábiles
+ * por `calculateSlaDeadline`. El % restante se computa midiendo
+ * `businessHoursBetween(now, deadline)` contra el SLA total
+ * (`hours * 3600s`). El auto-cierre también usa días hábiles.
  *
  * Match con `tikora-events.md` §3.3 y `decisiones-tecnicas.md` §10.
  */
@@ -58,6 +71,7 @@ export class SlaCheckerService {
     @InjectModel(Tenant.name) private readonly tenantModel: Model<TenantDocument>,
     private readonly config: ConfigService<Env, true>,
     private readonly events: EventEmitter2,
+    private readonly businessHours: BusinessHoursService,
   ) {}
 
   /**
@@ -68,10 +82,15 @@ export class SlaCheckerService {
     const batchSize = this.config.get('SLA_BATCH_SIZE', { infer: true });
     const threshold = this.config.get('SLA_APPROACHING_THRESHOLD_PERCENT', { infer: true });
 
+    // Precarga de tenants con su timezone + opts hábiles. Decisión §10:
+    // los cálculos del cron deben respetar la jornada de cada tenant.
+    // Una sola query por tick — los chequeos lo consultan en memoria.
+    const tenantContexts = await this.loadTenantContexts();
+
     const [approachingEmitted, breachEmitted, definitivelyClosed] = await Promise.all([
-      this.checkApproaching(now, threshold, batchSize),
-      this.checkBreach(now, batchSize),
-      this.checkAutoClose(now, batchSize),
+      this.checkApproaching(now, threshold, batchSize, tenantContexts),
+      this.checkBreach(now, batchSize, tenantContexts),
+      this.checkAutoClose(now, batchSize, tenantContexts),
     ]);
 
     if (approachingEmitted + breachEmitted + definitivelyClosed > 0) {
@@ -84,14 +103,19 @@ export class SlaCheckerService {
 
   /**
    * Tickets activos cuyo deadline cae dentro de la ventana de umbral
-   * (≤ `threshold` % del SLA total restante) y que aún no fueron
-   * notificados. La consulta usa el SLA total del área para calcular la
-   * ventana — por eso necesita el área cargada.
+   * (≤ `threshold` % del SLA total restante en horas hábiles) y que aún
+   * no fueron notificados. La consulta usa el SLA total del área y
+   * mide `remainingMs` con `businessHoursBetween` en la TZ del tenant.
    */
-  private async checkApproaching(now: Date, threshold: number, batchSize: number): Promise<number> {
+  private async checkApproaching(
+    now: Date,
+    threshold: number,
+    batchSize: number,
+    tenantContexts: TenantContextMap,
+  ): Promise<number> {
     // Buscamos candidatos: activos, con deadline futuro, sin flag previo.
     // La ventana exacta (≤ threshold % restante) la evaluamos contra cada
-    // ticket porque depende del SLA del área y la prioridad.
+    // ticket porque depende del SLA del área, la prioridad y la TZ.
     const candidates = await this.ticketModel
       .find({
         estado: { $in: ['escalado', 'en_progreso'] },
@@ -104,9 +128,11 @@ export class SlaCheckerService {
     let emitted = 0;
     for (const ticket of candidates) {
       if (!ticket.slaDeadline || !ticket.areaId || !ticket.prioridad) continue;
+      const ctx = tenantContexts.get(ticket.tenantId.toString());
+      if (!ctx) continue;
       const totalMs = await this.totalSlaMsFor(ticket);
       if (totalMs === null || totalMs <= 0) continue;
-      const remainingMs = ticket.slaDeadline.getTime() - now.getTime();
+      const remainingMs = businessHoursBetween(now, ticket.slaDeadline, ctx.opts) * MS_PER_HOUR;
       // Si remainingMs/totalMs > threshold, no estamos en ventana todavía.
       if (remainingMs > totalMs * threshold) continue;
 
@@ -136,9 +162,15 @@ export class SlaCheckerService {
 
   /**
    * Tickets activos cuyo deadline ya pasó y que no fueron notificados.
-   * No requiere conocer el SLA total — basta con que `slaDeadline < now`.
+   * `overdueMs` se mide en horas hábiles desde la TZ del tenant — un
+   * ticket vencido el viernes 18:00 y revisado el lunes 08:00 reporta
+   * 1 h de atraso, no las 62 wallclock.
    */
-  private async checkBreach(now: Date, batchSize: number): Promise<number> {
+  private async checkBreach(
+    now: Date,
+    batchSize: number,
+    tenantContexts: TenantContextMap,
+  ): Promise<number> {
     const candidates = await this.ticketModel
       .find({
         estado: { $in: ['escalado', 'en_progreso'] },
@@ -151,6 +183,8 @@ export class SlaCheckerService {
     let emitted = 0;
     for (const ticket of candidates) {
       if (!ticket.slaDeadline || !ticket.areaId || !ticket.prioridad) continue;
+      const ctx = tenantContexts.get(ticket.tenantId.toString());
+      if (!ctx) continue;
 
       const updated = await this.ticketModel.findOneAndUpdate(
         { _id: ticket._id, slaBreachNotifiedAt: null },
@@ -159,7 +193,7 @@ export class SlaCheckerService {
       );
       if (!updated) continue;
 
-      const overdueMs = now.getTime() - ticket.slaDeadline.getTime();
+      const overdueMs = businessHoursBetween(ticket.slaDeadline, now, ctx.opts) * MS_PER_HOUR;
       const leaderIds = await this.leadersOf(ticket.areaId);
 
       this.events.emit(NOTIFICATION_EVENTS.SlaBreach, {
@@ -179,25 +213,25 @@ export class SlaCheckerService {
 
   /**
    * Cierra definitivamente tickets `cerrado` cuyo `resolvedAt` es más
-   * antiguo que `slaAutoCloseDays` (config del tenant). El estado del
-   * ticket sigue siendo `cerrado` — solo seteamos `closedDefinitivelyAt`
-   * que `tickets.service.reopen` consulta para bloquear reaperturas
-   * tardías. El cálculo es wallclock (TODO horas hábiles).
+   * antiguo que `slaAutoCloseDays` **días hábiles** del tenant. El
+   * estado del ticket sigue siendo `cerrado` — solo seteamos
+   * `closedDefinitivelyAt` que `tickets.service.reopen` consulta para
+   * bloquear reaperturas tardías.
    */
-  private async checkAutoClose(now: Date, batchSize: number): Promise<number> {
-    // Una sola pasada por tenant, en serie, para no leer N veces los
-    // mismos settings. Si la lista de tenants crece mucho se puede
-    // paralelizar.
-    const tenants = await this.tenantModel.find({ active: true }).exec();
+  private async checkAutoClose(
+    now: Date,
+    batchSize: number,
+    tenantContexts: TenantContextMap,
+  ): Promise<number> {
     let total = 0;
-    for (const tenant of tenants) {
-      const days = tenant.settings?.slaAutoCloseDays ?? 0;
+    for (const ctx of tenantContexts.values()) {
+      const days = ctx.tenant.settings?.slaAutoCloseDays ?? 0;
       if (days <= 0) continue;
-      const cutoff = new Date(now.getTime() - days * MS_PER_DAY);
+      const cutoff = addBusinessDays(now, -days, ctx.opts);
 
       const candidates = await this.ticketModel
         .find({
-          tenantId: tenant._id,
+          tenantId: ctx.tenant._id,
           estado: 'cerrado',
           resolvedAt: { $ne: null, $lte: cutoff },
           closedDefinitivelyAt: null,
@@ -222,6 +256,22 @@ export class SlaCheckerService {
       }
     }
     return total;
+  }
+
+  /**
+   * Precarga los tenants activos con su TZ y construye las opts hábiles
+   * para reutilizarlas en los 3 chequeos del tick sin queries extras.
+   */
+  private async loadTenantContexts(): Promise<TenantContextMap> {
+    const tenants = await this.tenantModel.find({ active: true }).exec();
+    const map: TenantContextMap = new Map();
+    for (const tenant of tenants) {
+      map.set(tenant._id.toString(), {
+        tenant,
+        opts: this.businessHours.optsFromSettings(tenant.settings),
+      });
+    }
+    return map;
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   AiClientUnavailableError,
 } from '../../ai-client/services/ai-client.service';
 import { Area, AreaDocument } from '../../areas/schemas/area.schema';
+import { BusinessHoursService } from '../../common/business-hours.service';
 import type { Env } from '../../config/env.schema';
 import { InteractionsService } from '../../interactions/services/interactions.service';
 import {
@@ -49,6 +50,7 @@ export class ClassificationService {
     private readonly classificationModel: Model<ClassificationDocument>,
     private readonly aiClient: AiClientService,
     private readonly config: ConfigService<Env, true>,
+    private readonly businessHours: BusinessHoursService,
     @Inject(forwardRef(() => InteractionsService))
     private readonly interactions: InteractionsService,
     private readonly events: EventEmitter2,
@@ -179,7 +181,8 @@ export class ClassificationService {
       ticket.areaId = targetArea._id;
       ticket.prioridad = normalized.prioridad;
       ticket.tags = Array.from(new Set([...ticket.tags, ...normalized.tags]));
-      ticket.slaDeadline = calculateSlaDeadline(normalized.prioridad, targetArea.slas);
+      const slaOpts = await this.businessHours.getOptsForTenant(ticket.tenantId);
+      ticket.slaDeadline = calculateSlaDeadline(normalized.prioridad, targetArea.slas, slaOpts);
       await ticket.save();
 
       ticket.estado = 'escalado';
