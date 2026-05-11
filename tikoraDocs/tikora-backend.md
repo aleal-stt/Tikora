@@ -2,7 +2,7 @@
 
 ## 1. Descripción General
 
-Backend de **Tikora**, plataforma interna de gestión de tickets potenciada por IA. Construido con **NestJS** sobre un monorepo **Nx** con **pnpm**. Base de datos **MongoDB** vía Mongoose. Validación con **Zod** a través de `nestjs-zod`. Autenticación con **JWT** (access + refresh) y hashing con **bcryptjs**. Procesamiento asíncrono con **BullMQ + Redis**. IA generativa vía SDK oficial de **Anthropic**. Búsqueda semántica con **Transformers.js** (embeddings locales) y **MongoDB Atlas Vector Search**. Notificaciones en tiempo real con **SSE** y correos transaccionales con **Resend**.
+Backend de **Tikora**, plataforma interna de gestión de tickets potenciada por IA. Construido con **NestJS** sobre un monorepo **Nx** con **pnpm**. Base de datos **MongoDB** vía Mongoose. Validación con **Zod** a través de `nestjs-zod`. Autenticación con **JWT** (access + refresh) y hashing con **bcryptjs**. Procesamiento asíncrono con **BullMQ + Redis**. IA generativa vía SDK oficial de **OpenAI** apuntando a un endpoint **OpenAI-compatible** (Gemini free tier por defecto, configurable a cualquier proveedor compat). Búsqueda semántica con **Transformers.js** (embeddings locales) y **MongoDB Atlas Vector Search**. Notificaciones en tiempo real con **SSE** y correos transaccionales con **SMTP** genérico vía `nodemailer`.
 
 El backend es mono-tenant en MVP pero está preparado para SaaS multi-empresa: toda entidad lleva `tenantId` desde el día uno y todas las queries lo aplican como filtro transversal.
 
@@ -19,11 +19,11 @@ El backend es mono-tenant en MVP pero está preparado para SaaS multi-empresa: t
 - **Validación:** Zod + nestjs-zod (schemas compartidos desde `@tikora/core`)
 - **Autenticación:** JWT (`@nestjs/jwt`) + bcryptjs
 - **Cola de jobs:** BullMQ + Redis
-- **IA generativa:** SDK oficial de Anthropic (`@anthropic-ai/sdk`)
+- **IA generativa:** SDK oficial de OpenAI (`openai`) apuntando a endpoint OpenAI-compatible. Proveedor por defecto: Gemini free tier (`gemini-2.5-flash`). Configurable por envs `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL_*`.
 - **Embeddings:** Transformers.js (`@xenova/transformers`) — modelo `Xenova/multilingual-e5-small`
 - **Búsqueda vectorial:** MongoDB Atlas Vector Search
 - **Notificaciones realtime:** Server-Sent Events (SSE)
-- **Email transaccional:** Resend
+- **Email transaccional:** SMTP genérico vía `nodemailer` (Gmail con app password como opción gratis recomendada para piloto)
 - **Testing:** Vitest + fast-check (property-based testing)
 - **Bundler:** Webpack (vía `@nx/webpack`)
 - **Documentación API:** Swagger (`@nestjs/swagger`)
@@ -40,23 +40,23 @@ Cada módulo encapsula su propia lógica: controllers, services, schemas, DTOs, 
 
 **Módulos del MVP:**
 
-| Módulo           | Responsabilidad                                                                                            |
-| ---------------- | ---------------------------------------------------------------------------------------------------------- |
-| `auth`           | Registro, login, refresh tokens, guard global JWT, decorador `@Public`.                                    |
-| `users`          | CRUD de usuarios, perfil, asignación a una o varias áreas.                                                 |
-| `tenants`        | Modelo y resolución del tenant. En MVP existe uno solo, pero el módulo está listo para crecer.             |
-| `areas`          | CRUD de áreas, listado de agentes asignados, configuración de SLAs por área.                               |
-| `tickets`        | Modelo central, CRUD, estados, asignación, historial de interacciones.                                     |
-| `classification` | Orquestador del pipeline de clasificación por IA. Encola job, persiste resultado y dispara siguiente paso. |
-| `ai-client`      | Cliente reutilizable del SDK de Anthropic. Encapsula prompt caching, retries, salida estructurada.         |
-| `kb`             | Documentos de la base de conocimiento, generación de embeddings, búsqueda vectorial.                       |
-| `auto-response`  | Generación de respuesta automática vía RAG. Activación efectiva en Fase 2.                                 |
-| `notifications`  | Hub central de notificaciones. Recibe eventos de dominio y decide qué mandar y por dónde.                  |
-| `email`          | Cliente del proveedor transaccional de correo.                                                             |
-| `realtime`       | Gateway SSE para notificaciones en vivo del agente.                                                        |
-| `sla`            | Cron de chequeo periódico, alertas previas y vencimientos.                                                 |
-| `feedback`       | Feedback estructurado del agente sobre clasificación y respuestas IA.                                      |
-| `health`         | Health check para readiness/liveness probes.                                                               |
+| Módulo           | Responsabilidad                                                                                                                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth`           | Registro, login, refresh tokens, guard global JWT, decorador `@Public`.                                                                                                                        |
+| `users`          | CRUD de usuarios, perfil, asignación a una o varias áreas.                                                                                                                                     |
+| `tenants`        | Modelo y resolución del tenant. En MVP existe uno solo, pero el módulo está listo para crecer.                                                                                                 |
+| `areas`          | CRUD de áreas, listado de agentes asignados, configuración de SLAs por área.                                                                                                                   |
+| `tickets`        | Modelo central, CRUD, estados, asignación, historial de interacciones.                                                                                                                         |
+| `classification` | Orquestador del pipeline de clasificación por IA. Encola job, persiste resultado y dispara siguiente paso.                                                                                     |
+| `ai-client`      | Cliente reutilizable del SDK de OpenAI apuntando a endpoint OpenAI-compatible. Encapsula retries, validación de salida estructurada con Zod y prompt caching (cuando el proveedor lo soporte). |
+| `kb`             | Documentos de la base de conocimiento, generación de embeddings, búsqueda vectorial.                                                                                                           |
+| `auto-response`  | Generación de respuesta automática vía RAG. Activación efectiva en Fase 2.                                                                                                                     |
+| `notifications`  | Hub central de notificaciones. Recibe eventos de dominio y decide qué mandar y por dónde.                                                                                                      |
+| `email`          | Cliente del proveedor transaccional de correo.                                                                                                                                                 |
+| `realtime`       | Gateway SSE para notificaciones en vivo del agente.                                                                                                                                            |
+| `sla`            | Cron de chequeo periódico, alertas previas y vencimientos.                                                                                                                                     |
+| `feedback`       | Feedback estructurado del agente sobre clasificación y respuestas IA.                                                                                                                          |
+| `health`         | Health check para readiness/liveness probes.                                                                                                                                                   |
 
 **Mapa de dependencias entre módulos:**
 
@@ -283,27 +283,28 @@ Cuatro roles fijos: **empleado**, **agente**, **líder**, **admin**. Los permiso
 
 ---
 
-### 3.7 Pipeline de IA con BullMQ + SDK Anthropic
+### 3.7 Pipeline de IA con BullMQ + SDK OpenAI (endpoint OpenAI-compat)
 
 La clasificación de tickets, generación de auto-respuesta, generación de embeddings y envío de correos corren como **jobs en background** en BullMQ + Redis. El POST de creación de ticket responde inmediatamente con el ticket en estado `recibido` y la clasificación llega vía notificación cuando el job termina.
 
 **Colas principales:**
 
-| Cola             | Job                                         | Trigger                                                                          |
-| ---------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
-| `classification` | Clasificar ticket con Claude Haiku          | Al crear ticket                                                                  |
-| `auto-response`  | Generar respuesta vía RAG con Claude Sonnet | Cuando un ticket clasificado cumple las 3 condiciones de auto-respuesta          |
-| `embeddings`     | Generar embeddings de chunks de KB          | Al cargar/editar documento de KB                                                 |
-| `email`          | Enviar correo transaccional                 | Eventos de notificación                                                          |
-| `sla-check`      | Cron periódico de chequeo de SLAs           | Cada `SLA_CRON_INTERVAL_MS` (default 5 min, módulo `sla` con `@nestjs/schedule`) |
+| Cola             | Job                                                                         | Trigger                                                                          |
+| ---------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `classification` | Clasificar ticket con el modelo configurado en `LLM_MODEL_CLASSIFICATION`   | Al crear ticket                                                                  |
+| `auto-response`  | Generar respuesta vía RAG con el modelo configurado en `LLM_MODEL_RESPONSE` | Cuando un ticket clasificado cumple las 3 condiciones de auto-respuesta          |
+| `embeddings`     | Generar embeddings de chunks de KB                                          | Al cargar/editar documento de KB                                                 |
+| `email`          | Enviar correo transaccional                                                 | Eventos de notificación                                                          |
+| `sla-check`      | Cron periódico de chequeo de SLAs                                           | Cada `SLA_CRON_INTERVAL_MS` (default 5 min, módulo `sla` con `@nestjs/schedule`) |
 
-**Cliente Anthropic (`AiClientService`):**
+**Cliente LLM (`AiClientService`):**
 
-- Centraliza llamadas al SDK oficial.
-- Configurable por modelo vía variable de entorno (`ANTHROPIC_MODEL_CLASSIFICATION`, `ANTHROPIC_MODEL_RESPONSE`).
-- Aprovecha **prompt caching** de Anthropic para amortizar el costo del system prompt + KB en RAG.
-- Estrategia de retries con backoff exponencial (3 intentos por defecto, configurable).
-- Salida estructurada con JSON schema cuando el contexto lo requiere (clasificación).
+- Centraliza llamadas al SDK de OpenAI configurado con `baseURL = LLM_BASE_URL` (Gemini OpenAI-compat por default).
+- Configurable por modelo vía variable de entorno (`LLM_MODEL_CLASSIFICATION`, `LLM_MODEL_RESPONSE`).
+- Soporta prompt caching cuando el proveedor lo expone (flag `LLM_PROMPT_CACHE_ENABLED`; desactivado por default con Gemini, que no lo soporta).
+- Estrategia de retries con backoff exponencial (configurable vía `LLM_MAX_RETRIES` y `LLM_RETRY_BACKOFF_MS`).
+- Salida estructurada validada con Zod desde `@tikora/core`. Ante JSON inválido o que no cumple schema, reintenta con prompt correctivo.
+- Persistencia append-only en `ai_call_logs` para auditoría (sin contenido sensible a nivel info).
 
 **Clasificación:**
 
@@ -328,9 +329,9 @@ Cada respuesta de IA registra: prompt usado, respuesta generada, fuentes de la K
 **Reglas:**
 
 - Los system prompts viven como archivos `.md` en `templates/` de cada módulo. Nunca inline en el código.
-- La API key (`ANTHROPIC_API_KEY`) y los modelos se configuran exclusivamente por variable de entorno.
-- Toda salida de la IA pasa por validación Zod antes de persistirse: si el JSON no cumple el schema, el job falla y se reintenta.
-- Los reintentos por fallo de la API de Claude son automáticos. Tras agotarse, el ticket se marca como `requiere_revision_clasificacion` y se notifica al líder del área (cuando el área es resoluble) o al admin.
+- La API key (`LLM_API_KEY`), la base URL (`LLM_BASE_URL`) y los modelos se configuran exclusivamente por variable de entorno.
+- Toda salida de la IA pasa por validación Zod antes de persistirse: si el JSON no cumple el schema, el job falla y se reintenta con prompt correctivo.
+- Los reintentos por fallo del LLM son automáticos. Tras agotarse, el ticket se marca como `requiere_revision_clasificacion` y se notifica al líder del área (cuando el área es resoluble) o al admin.
 
 ---
 
@@ -355,7 +356,7 @@ La base de conocimiento usa embeddings generados localmente con **Transformers.j
 3. Se traen los `top-k` chunks (k = 5 por defecto).
 4. Si el score máximo es menor que `UMBRAL_RELEVANCIA_KB` (default `0.75`), no se intenta auto-responder.
 5. Los chunks recuperados se inyectan en el prompt de generación junto con la pregunta del usuario.
-6. La respuesta de Claude se devuelve junto con las referencias a los chunks utilizados.
+6. La respuesta del LLM se devuelve junto con las referencias a los chunks utilizados.
 
 **Reglas:**
 
@@ -372,7 +373,7 @@ El módulo `notifications` es el hub central que recibe eventos de dominio (`Tic
 
 **Canales:**
 
-- **Email** (módulo `email`): correos transaccionales vía Resend. Templates en español.
+- **Email** (módulo `email`): correos transaccionales vía SMTP genérico (`nodemailer`). Templates en español con Handlebars. Modo `EMAIL_DELIVERY_MODE=log` en dev (consola) y `live` en prod (envío real).
 - **Realtime** (módulo `realtime`): SSE. Cada cliente conectado tiene un stream `/api/v1/notifications/stream` autenticado por **ticket corto**. Como `EventSource` no permite enviar headers, el cliente primero llama `POST /api/v1/auth/sse-ticket` (autenticado con bearer normal) y obtiene un ticket de vida corta firmado. Luego abre el stream con `?ticket={ticket}`. El backend valida el ticket en el handshake (firma, expiración, single-use), lo marca como consumido y mantiene el stream abierto. Tras desconexión, el cliente debe pedir un ticket nuevo antes de reabrir.
 
 **Eventos y canales asociados:**
@@ -647,35 +648,43 @@ Todas las entidades llevan `tenantId`, `createdAt`, `updatedAt`. Las queries sie
 
 **Variables de entorno** (archivo `.env.example` versionado, `.env` en `.gitignore`):
 
-| Variable                         | Descripción                                       | Ejemplo                        |
-| -------------------------------- | ------------------------------------------------- | ------------------------------ |
-| `PORT`                           | Puerto HTTP del backend                           | `3001`                         |
-| `MONGODB_URI`                    | Cadena de conexión a Mongo Atlas                  | `mongodb+srv://...`            |
-| `REDIS_URL`                      | Conexión a Redis para BullMQ                      | `redis://localhost:6379`       |
-| `JWT_SECRET`                     | Secreto del access token                          | (random 64 chars)              |
-| `JWT_REFRESH_SECRET`             | Secreto del refresh token                         | (random 64 chars)              |
-| `JWT_ACCESS_EXPIRES_IN`          | Vencimiento access token                          | `15m`                          |
-| `JWT_REFRESH_EXPIRES_IN`         | Vencimiento refresh token                         | `7d`                           |
-| `SSE_TICKET_EXPIRES_IN`          | Vencimiento del ticket de apertura SSE            | `90s`                          |
-| `COOKIE_SECURE`                  | Activa flag `Secure` en cookies (solo HTTPS).     | `false` (dev) / `true` (prod)  |
-| `COOKIE_SAMESITE`                | Política `SameSite` de cookies.                   | `lax`                          |
-| `BCRYPT_SALT_ROUNDS`             | Salt rounds para bcryptjs                         | `10`                           |
-| `DEFAULT_TENANT_ID`              | Tenant del MVP mono-empresa                       | `tenant-default`               |
-| `ANTHROPIC_API_KEY`              | API key de Anthropic                              | `sk-ant-...`                   |
-| `ANTHROPIC_MODEL_CLASSIFICATION` | Modelo para clasificación                         | `claude-haiku-4-5-20251001`    |
-| `ANTHROPIC_MODEL_RESPONSE`       | Modelo para generación de respuestas              | `claude-sonnet-4-6`            |
-| `UMBRAL_CONFIANZA_CLASIFICACION` | Confianza mínima para no requerir revisión humana | `0.7`                          |
-| `UMBRAL_RELEVANCIA_KB`           | Score mínimo de chunk de KB para auto-respuesta   | `0.75`                         |
-| `EMBEDDING_MODEL_NAME`           | Modelo de Transformers.js                         | `Xenova/multilingual-e5-small` |
-| `RESEND_API_KEY`                 | API key de Resend                                 | `re_...`                       |
-| `EMAIL_FROM`                     | Remitente de los correos                          | `Tikora <noreply@tikora.app>`  |
-| `UPLOADS_DIR`                    | Directorio local de adjuntos                      | `./uploads`                    |
-| `MAX_ATTACHMENT_SIZE_MB`         | Tamaño máximo por adjunto                         | `10`                           |
-| `MAX_ATTACHMENTS_PER_TICKET`     | Cantidad máxima por ticket                        | `5`                            |
-| `SLA_BUSINESS_HOURS_START`       | Inicio de jornada hábil                           | `07:00`                        |
-| `SLA_BUSINESS_HOURS_END`         | Fin de jornada hábil                              | `18:00`                        |
-| `SLA_REOPEN_GRACE_DAYS`          | Días hábiles para admitir reapertura              | `5`                            |
-| `LOG_LEVEL`                      | Nivel de logs                                     | `info`                         |
+| Variable                         | Descripción                                          | Ejemplo                                                    |
+| -------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------- |
+| `PORT`                           | Puerto HTTP del backend                              | `3001`                                                     |
+| `MONGODB_URI`                    | Cadena de conexión a Mongo Atlas                     | `mongodb+srv://...`                                        |
+| `REDIS_URL`                      | Conexión a Redis para BullMQ                         | `redis://localhost:6379`                                   |
+| `JWT_SECRET`                     | Secreto del access token                             | (random 64 chars)                                          |
+| `JWT_REFRESH_SECRET`             | Secreto del refresh token                            | (random 64 chars)                                          |
+| `JWT_ACCESS_EXPIRES_IN`          | Vencimiento access token                             | `15m`                                                      |
+| `JWT_REFRESH_EXPIRES_IN`         | Vencimiento refresh token                            | `7d`                                                       |
+| `SSE_TICKET_EXPIRES_IN`          | Vencimiento del ticket de apertura SSE               | `90s`                                                      |
+| `COOKIE_SECURE`                  | Activa flag `Secure` en cookies (solo HTTPS).        | `false` (dev) / `true` (prod)                              |
+| `COOKIE_SAMESITE`                | Política `SameSite` de cookies.                      | `lax`                                                      |
+| `BCRYPT_SALT_ROUNDS`             | Salt rounds para bcryptjs                            | `10`                                                       |
+| `DEFAULT_TENANT_ID`              | Tenant del MVP mono-empresa                          | `tenant-default`                                           |
+| `LLM_API_KEY`                    | API key del proveedor LLM                            | `AIzaSy...` (Gemini)                                       |
+| `LLM_BASE_URL`                   | Base URL del endpoint OpenAI-compat                  | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| `LLM_MODEL_CLASSIFICATION`       | Modelo para clasificación                            | `gemini-2.5-flash`                                         |
+| `LLM_MODEL_RESPONSE`             | Modelo para generación de respuestas                 | `gemini-2.5-flash`                                         |
+| `LLM_MAX_RETRIES`                | Reintentos por error transitorio                     | `3`                                                        |
+| `LLM_PROMPT_CACHE_ENABLED`       | Activa prompt caching cuando el proveedor lo soporta | `false` (default con Gemini)                               |
+| `UMBRAL_CONFIANZA_CLASIFICACION` | Confianza mínima para no requerir revisión humana    | `0.7`                                                      |
+| `UMBRAL_RELEVANCIA_KB`           | Score mínimo de chunk de KB para auto-respuesta      | `0.75`                                                     |
+| `EMBEDDING_MODEL_NAME`           | Modelo de Transformers.js                            | `Xenova/multilingual-e5-small`                             |
+| `EMAIL_DELIVERY_MODE`            | Modo de envío de correos                             | `log` (dev) / `live` (prod)                                |
+| `SMTP_HOST`                      | Host SMTP                                            | `smtp.gmail.com`                                           |
+| `SMTP_PORT`                      | Puerto SMTP                                          | `587`                                                      |
+| `SMTP_SECURE`                    | Usar TLS implícito                                   | `false`                                                    |
+| `SMTP_USER`                      | Usuario SMTP                                         | `tikora.notif@gmail.com`                                   |
+| `SMTP_PASS`                      | Password / app password SMTP                         | (16 chars en Gmail)                                        |
+| `EMAIL_FROM`                     | Remitente de los correos                             | `Tikora <noreply@tikora.app>`                              |
+| `UPLOADS_DIR`                    | Directorio local de adjuntos                         | `./uploads`                                                |
+| `MAX_ATTACHMENT_SIZE_MB`         | Tamaño máximo por adjunto                            | `10`                                                       |
+| `MAX_ATTACHMENTS_PER_TICKET`     | Cantidad máxima por ticket                           | `5`                                                        |
+| `SLA_BUSINESS_HOURS_START`       | Inicio de jornada hábil                              | `07:00`                                                    |
+| `SLA_BUSINESS_HOURS_END`         | Fin de jornada hábil                                 | `18:00`                                                    |
+| `SLA_REOPEN_GRACE_DAYS`          | Días hábiles para admitir reapertura                 | `5`                                                        |
+| `LOG_LEVEL`                      | Nivel de logs                                        | `info`                                                     |
 
 **Configuración runtime:**
 

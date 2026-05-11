@@ -35,7 +35,7 @@
 | `notifications`           | Notificaciones para la campanita y la página.             | Mismo orden que tickets × destinatarios. |
 | `feedback_classification` | Feedback de agentes sobre clasificación IA.               | Subconjunto de tickets.                  |
 | `audit_log`               | Acciones administrativas auditadas.                       | Eventos puntuales.                       |
-| `ai_call_logs`            | Log estructurado de cada llamada al SDK de Anthropic.     | Idem clasificaciones + auto-respuestas.  |
+| `ai_call_logs`            | Log estructurado de cada llamada al LLM (vía SDK OpenAI). | Idem clasificaciones + auto-respuestas.  |
 
 ---
 
@@ -352,7 +352,7 @@ Si se usa Mongo (alternativa):
   confianza: number,                     // 0–1
   resumen: string,                       // ≤200 chars
   tags: string[],                        // ≤5 elementos
-  modelo: string,                        // "claude-haiku-4-5-20251001"
+  modelo: string,                        // "gemini-2.5-flash"
   promptVersion: string,                 // "v1"
   temperature: number,
   tokensInput: number,

@@ -1,6 +1,6 @@
 # Tikora — Setup de Desarrollo
 
-> Guía paso a paso para dejar un entorno local listo para desarrollar Tikora desde cero. Cubre prerrequisitos, inicialización del monorepo, servicios externos (MongoDB Atlas, Redis, Anthropic, Resend, Sentry), seeds y comandos del día a día.
+> Guía paso a paso para dejar un entorno local listo para desarrollar Tikora desde cero. Cubre prerrequisitos, inicialización del monorepo, servicios externos (MongoDB Atlas, Redis, proveedor LLM compatible con OpenAI SDK — Gemini free tier por default, SMTP para correo transaccional, Sentry opcional), seeds y comandos del día a día.
 
 ---
 
@@ -96,9 +96,9 @@ pnpm add -F back \
   @nestjs/jwt @nestjs/passport @nestjs/event-emitter @nestjs/swagger @nestjs/throttler \
   @nestjs/mongoose mongoose nestjs-zod zod \
   bcryptjs cookie-parser \
-  @anthropic-ai/sdk \
+  openai \
   bullmq ioredis \
-  resend \
+  nodemailer \
   @xenova/transformers \
   date-fns date-fns-tz \
   uuid \
@@ -106,7 +106,7 @@ pnpm add -F back \
   @sentry/node @sentry/profiling-node
 
 pnpm add -DF back \
-  @types/bcryptjs @types/cookie-parser @types/multer @types/uuid \
+  @types/bcryptjs @types/cookie-parser @types/multer @types/uuid @types/nodemailer \
   fast-check
 ```
 
@@ -228,15 +228,44 @@ Usado por BullMQ (colas) y por los SSE tickets (TTL 90 s).
 - **Local con Docker:** ya cubierto en el `docker-compose.dev.yml` de §4.1A.
 - **Cloud:** cualquier Redis 7+. Render, Upstash, Railway, etc.
 
-### 4.3 Anthropic
+### 4.3 Proveedor LLM (endpoint OpenAI-compatible)
 
-1. Crear cuenta en https://console.anthropic.com.
-2. Generar una API key en "API Keys".
-3. Cargar saldo (sin saldo el SDK falla con `402`).
-4. Copiar la key a `ANTHROPIC_API_KEY` del `.env`.
-5. Verificar acceso a los modelos `claude-haiku-4-5-20251001` y `claude-sonnet-4-6` desde la consola.
+Tikora habla con el LLM usando el SDK oficial de OpenAI (`openai`) configurado con `baseURL` apuntando a un endpoint OpenAI-compatible. Esto permite usar prácticamente cualquier proveedor (OpenAI, Gemini, OpenRouter, vLLM self-hosted, Ollama, LM Studio, …) cambiando solo variables de entorno — sin tocar código.
 
-> Recomendación de seguridad: usar una key distinta para dev y prod. En dev limitarla con un budget bajo desde la consola.
+**Opción recomendada para piloto gratis: Gemini free tier.**
+
+1. Crear cuenta en https://aistudio.google.com.
+2. Generar una API key en https://aistudio.google.com/apikey.
+3. Completar `.env` del back:
+
+   ```env
+   LLM_API_KEY=AIzaSy...
+   LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+   LLM_MODEL_CLASSIFICATION=gemini-2.5-flash
+   LLM_MODEL_RESPONSE=gemini-2.5-flash
+   LLM_MAX_TOKENS_CLASSIFICATION=2048
+   LLM_MAX_TOKENS_RESPONSE=4096
+   LLM_PROMPT_CACHE_ENABLED=false
+   ```
+
+4. Verificar acceso disparando un ticket y observando logs del worker (`[ClassificationProcessor]` debe completar sin 4xx).
+
+**Notas sobre cuotas (Gemini free tier):**
+
+- ~15 RPM en `gemini-2.5-flash`. BullMQ ya reintenta con backoff, pero no testees varios tickets en sucesión rápida.
+- `gemini-2.5-flash` reserva tokens internos para "thinking"; por eso los defaults de `LLM_MAX_TOKENS_*` están más altos que en un modelo regular. Bajarlos puede hacer que `completion_tokens=0` y la respuesta visible quede vacía.
+- Si tu cuenta no tiene cuota en algún modelo (visible como `limit: 0` en el 429), probar otro modelo dentro del mismo free tier.
+
+**Cambiar de proveedor:** solo modificar `LLM_API_KEY` + `LLM_BASE_URL` + `LLM_MODEL_*`. Ejemplos:
+
+| Proveedor        | `LLM_BASE_URL`                                             | `LLM_MODEL_*` ejemplo    |
+| ---------------- | ---------------------------------------------------------- | ------------------------ |
+| OpenAI           | `https://api.openai.com/v1`                                | `gpt-4o-mini`, `gpt-4o`  |
+| OpenRouter       | `https://openrouter.ai/api/v1`                             | `anthropic/claude-haiku` |
+| Gemini (default) | `https://generativelanguage.googleapis.com/v1beta/openai/` | `gemini-2.5-flash`       |
+| vLLM self-hosted | `http://<host>:8000/v1`                                    | `<model-id-deployed>`    |
+
+> Recomendación de seguridad: usar una key distinta para dev y prod. Cuando se contrate un tier pago, limitar budget desde la consola del proveedor.
 
 ### 4.4 Correo transaccional (SMTP)
 
@@ -456,18 +485,19 @@ pnpm exec nx run back:reindex-kb -- --tenantId <id> [--dry-run]
 
 ## 8. Troubleshooting
 
-| Síntoma                                                               | Causa probable                                                           | Solución                                                                                    |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `MongooseServerSelectionError` al arrancar back                       | Mongo no está corriendo o `MONGODB_URI` mal.                             | Verificar `docker compose ps` o probar con `mongosh "$MONGODB_URI"`.                        |
-| Login responde 401 con cookies en dev                                 | Origen distinto entre front y back.                                      | Verificar que el front consume `/api/v1` (relativo) y el proxy de Vite está activo.         |
-| `Vector search index not found`                                       | El índice de Atlas no se creó o el nombre no coincide.                   | Re-crear con el nombre exacto de `MONGODB_VECTOR_INDEX_NAME`.                               |
-| `ANTHROPIC API error 402`                                             | Sin saldo.                                                               | Cargar crédito en la consola de Anthropic.                                                  |
-| `Email not delivered` y no falla                                      | `EMAIL_DELIVERY_MODE=log`.                                               | Cambiar a `live` y configurar `SMTP_*` (ver §4.4).                                          |
-| `Invalid login: 535-5.7.8 Username and Password not accepted` (Gmail) | Estás usando la contraseña normal de Gmail, no un app password.          | Generar app password en https://myaccount.google.com/apppasswords y pegarlo en `SMTP_PASS`. |
-| Worker no procesa jobs                                                | Redis no está, o `REDIS_URL` apunta a otro lado.                         | `redis-cli ping` debe responder `PONG`.                                                     |
-| `Cannot find module '@tikora/core'`                                   | Paths de TS o build del paquete sin compilar.                            | Re-ejecutar `pnpm install` y verificar `tsconfig.base.json`.                                |
-| Cookie de refresh no aparece en el browser                            | Falta `credentials: 'include'` en fetch o el back no setea `Set-Cookie`. | Revisar interceptor de `lib/api-client.ts` y CORS del back.                                 |
-| HMR del front no recarga                                              | Permisos de inotify en Linux.                                            | `sudo sysctl fs.inotify.max_user_watches=524288`.                                           |
+| Síntoma                                                               | Causa probable                                                           | Solución                                                                                               |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `MongooseServerSelectionError` al arrancar back                       | Mongo no está corriendo o `MONGODB_URI` mal.                             | Verificar `docker compose ps` o probar con `mongosh "$MONGODB_URI"`.                                   |
+| Login responde 401 con cookies en dev                                 | Origen distinto entre front y back.                                      | Verificar que el front consume `/api/v1` (relativo) y el proxy de Vite está activo.                    |
+| `Vector search index not found`                                       | El índice de Atlas no se creó o el nombre no coincide.                   | Re-crear con el nombre exacto de `MONGODB_VECTOR_INDEX_NAME`.                                          |
+| `LLM API error 401/402`                                               | API key inválida o sin cuota.                                            | Verificar `LLM_API_KEY` y cuota del proveedor. Para Gemini free tier ver `aistudio.google.com/apikey`. |
+| `LLM API error 429`                                                   | Rate limit del free tier.                                                | Esperar al reset (~1 min en Gemini) o subir a tier pago / cambiar `LLM_BASE_URL`.                      |
+| `Email not delivered` y no falla                                      | `EMAIL_DELIVERY_MODE=log`.                                               | Cambiar a `live` y configurar `SMTP_*` (ver §4.4).                                                     |
+| `Invalid login: 535-5.7.8 Username and Password not accepted` (Gmail) | Estás usando la contraseña normal de Gmail, no un app password.          | Generar app password en https://myaccount.google.com/apppasswords y pegarlo en `SMTP_PASS`.            |
+| Worker no procesa jobs                                                | Redis no está, o `REDIS_URL` apunta a otro lado.                         | `redis-cli ping` debe responder `PONG`.                                                                |
+| `Cannot find module '@tikora/core'`                                   | Paths de TS o build del paquete sin compilar.                            | Re-ejecutar `pnpm install` y verificar `tsconfig.base.json`.                                           |
+| Cookie de refresh no aparece en el browser                            | Falta `credentials: 'include'` en fetch o el back no setea `Set-Cookie`. | Revisar interceptor de `lib/api-client.ts` y CORS del back.                                            |
+| HMR del front no recarga                                              | Permisos de inotify en Linux.                                            | `sudo sysctl fs.inotify.max_user_watches=524288`.                                                      |
 
 ---
 
@@ -482,8 +512,8 @@ Antes del primer `pnpm exec nx serve back` exitoso:
 - [ ] Mongo accesible (Atlas o Docker local).
 - [ ] Redis accesible.
 - [ ] Índice `kb_chunks_vector` creado en Atlas (puede dejarse para Fase 2).
-- [ ] Cuenta y API key de Anthropic con saldo.
-- [ ] Cuenta de Resend (dominio verificado o sandbox).
+- [ ] API key del proveedor LLM lista (Gemini free tier para piloto gratis).
+- [ ] Cuenta SMTP configurada (Gmail con app password para piloto gratis) — opcional en dev si se usa `EMAIL_DELIVERY_MODE=log`.
 - [ ] Secretos JWT generados con `openssl rand -hex 64`.
 - [ ] `apps/back/.env` y `apps/front/.env` completados.
 - [ ] `vite.config.ts` con el proxy `/api → localhost:3001`.

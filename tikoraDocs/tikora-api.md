@@ -146,7 +146,7 @@ El `ticket` se usa una sola vez en `?ticket=` al abrir el `EventSource`.
   "checks": {
     "mongo": "ok",
     "redis": "ok",
-    "anthropic": "ok"
+    "llm": "ok"
   }
 }
 ```

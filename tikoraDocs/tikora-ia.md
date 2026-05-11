@@ -21,9 +21,11 @@ La IA en Tikora cumple **dos funciones de negocio** y un **rol auxiliar**:
 
 **Proveedores:**
 
-- **Anthropic** (vía SDK oficial) para clasificación y generación de respuestas.
+- **SDK oficial de OpenAI** (`openai`) configurado con `baseURL` hacia un **endpoint OpenAI-compatible**. Proveedor por defecto en el setup actual: **Gemini free tier** (`https://generativelanguage.googleapis.com/v1beta/openai/`). Cambiar de proveedor (OpenAI directo, OpenRouter, vLLM self-hosted, Ollama, etc.) es solo cambiar `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL_*`.
 - **Transformers.js** (local) para embeddings.
 - **MongoDB Atlas Vector Search** (mismo cluster que la BD) para búsqueda vectorial.
+
+> Nota histórica: la decisión original (decisiones-tecnicas §3) fue usar el SDK de Anthropic con Claude Haiku/Sonnet. La revisión (§26) migró al SDK de OpenAI contra endpoint compatible por cero costo durante MVP. El cambio es transparente para el resto del backend porque `AiClientService` mantiene la misma interfaz.
 
 ---
 
@@ -31,17 +33,22 @@ La IA en Tikora cumple **dos funciones de negocio** y un **rol auxiliar**:
 
 ### 2.1 Modelos de generación
 
-| Función                             | Modelo por defecto                                 | Variable de entorno              |
-| ----------------------------------- | -------------------------------------------------- | -------------------------------- |
-| Clasificación                       | **Claude Haiku 4.5** (`claude-haiku-4-5-20251001`) | `ANTHROPIC_MODEL_CLASSIFICATION` |
-| Generación de respuesta             | **Claude Sonnet 4.6** (`claude-sonnet-4-6`)        | `ANTHROPIC_MODEL_RESPONSE`       |
-| Revisión / segunda opinión (Fase 3) | Sonnet 4.6 con prompt distinto                     | `ANTHROPIC_MODEL_REVIEW`         |
+| Función                             | Modelo por defecto (setup actual) | Variable de entorno           |
+| ----------------------------------- | --------------------------------- | ----------------------------- |
+| Clasificación                       | `gemini-2.5-flash`                | `LLM_MODEL_CLASSIFICATION`    |
+| Generación de respuesta             | `gemini-2.5-flash`                | `LLM_MODEL_RESPONSE`          |
+| Revisión / segunda opinión (Fase 3) | (no activo aún)                   | `LLM_MODEL_REVIEW` (opcional) |
 
-**Por qué Haiku para clasificar:** la tarea de clasificación es de comprensión + selección dentro de un set acotado (áreas, prioridades). Haiku 4.5 es notablemente rápido (latencia típica < 1 s), barato y suficientemente preciso. Procesar la clasificación con un modelo más caro no aporta calidad significativa pero multiplica el costo por un volumen alto de tickets.
+**Estrategia de selección de modelo:**
 
-**Por qué Sonnet para responder:** la generación de respuestas requiere redactar texto bien estructurado, empático, en español, citando información específica de la KB. Sonnet 4.6 da un salto de calidad notorio sobre Haiku en escritura larga y razonamiento sobre contexto. La auto-respuesta es la cara visible de Tikora frente al solicitante: vale la pena el costo extra.
+- **Modelo chico y rápido para clasificar**: la clasificación es comprensión + selección sobre un set acotado (áreas, prioridades). Un modelo de gama baja-media latencia < 1-2 s alcanza. Procesar con un modelo grande no agrega calidad significativa pero multiplica costo y latencia por volumen alto.
+- **Modelo más capaz para responder**: la auto-respuesta requiere texto bien estructurado, empático, en español, citando información específica de la KB. Si se usa un proveedor con tiers (OpenAI mini vs full, Gemini Flash vs Pro, Claude Haiku vs Sonnet), conviene reservar el tier superior para respuesta. En setup actual ambos usan `gemini-2.5-flash` porque el free tier de Pro es restrictivo y Flash da calidad suficiente para piloto.
+- **Configurable por env**: permite swap rápido a un modelo más nuevo o más barato sin redeploy. Cambiar `LLM_MODEL_*` es suficiente; el código no asume nada del modelo más allá de soportar el formato OpenAI-compat de chat completions.
 
-**Por qué dejar configurable por env:** permite cambiar a un modelo más nuevo (cuando salga Haiku 5 o Sonnet 5) sin tocar código, y permite usar modelos más baratos en entornos de staging o de prueba.
+**Notas sobre Gemini en particular:**
+
+- `gemini-2.5-flash` reserva tokens internos para razonamiento ("thinking tokens") que se cuentan dentro de `max_tokens`. Por eso los defaults de `LLM_MAX_TOKENS_CLASSIFICATION` (2048) y `LLM_MAX_TOKENS_RESPONSE` (4096) están más altos que en un modelo regular sin thinking. Bajarlos puede dejar `completion_tokens=0` con la respuesta vacía.
+- Free tier limita a ~15 RPM. Aceptable para MVP; BullMQ absorbe rate limits con backoff.
 
 ### 2.2 Modelo de embeddings
 
@@ -101,16 +108,16 @@ La capa de IA evoluciona en tres fases. Cada fase mantiene operativo el flujo an
 
 ## 4. Cliente de IA (Módulo `ai-client`)
 
-El módulo `ai-client` es la única capa del backend que habla directamente con la API de Anthropic. Todos los demás módulos (`classification`, `auto-response`, etc.) lo consumen vía inyección de dependencias.
+El módulo `ai-client` es la única capa del backend que habla directamente con el LLM (vía SDK de OpenAI contra endpoint OpenAI-compatible). Todos los demás módulos (`classification`, `auto-response`, etc.) lo consumen vía inyección de dependencias.
 
 ### 4.1 Responsabilidades
 
-- Encapsular el SDK de Anthropic.
-- Aplicar configuración global (timeouts, headers, base URL).
+- Encapsular el SDK de OpenAI configurado con `baseURL = LLM_BASE_URL`.
+- Aplicar configuración global (timeouts, headers).
 - Implementar retries con backoff exponencial.
-- Aplicar prompt caching donde corresponda.
-- Validar la salida estructurada con Zod antes de devolverla.
-- Emitir métricas y logs de cada llamada.
+- Aplicar prompt caching donde corresponda (flag `LLM_PROMPT_CACHE_ENABLED`; depende del proveedor — Gemini OpenAI-compat no lo soporta, OpenAI y Anthropic vía proxy compatible sí).
+- Validar la salida estructurada con Zod antes de devolverla; reintentar con prompt correctivo si falla.
+- Emitir métricas y persistir cada llamada en `ai_call_logs` (sin contenido sensible a nivel info).
 
 ### 4.2 Interfaz pública
 
@@ -124,7 +131,7 @@ interface AiClientService {
 }
 
 interface GenerateParams {
-  model: string; // p.ej. process.env.ANTHROPIC_MODEL_CLASSIFICATION
+  model: string; // p.ej. process.env.LLM_MODEL_CLASSIFICATION
   systemPrompt: string;
   userMessage: string;
   maxTokens?: number;
@@ -146,20 +153,22 @@ interface GenerateStructuredParams<T> extends GenerateParams {
 
 ### 4.3 Configuración
 
-| Parámetro                                          | Default                | Variable                              |
-| -------------------------------------------------- | ---------------------- | ------------------------------------- |
-| Timeout de request                                 | 30 s                   | `ANTHROPIC_TIMEOUT_MS`                |
-| Reintentos por error transitorio (5xx, rate limit) | 3                      | `ANTHROPIC_MAX_RETRIES`               |
-| Backoff inicial                                    | 1 s                    | `ANTHROPIC_RETRY_BACKOFF_MS`          |
-| Backoff factor                                     | 2                      | (constante)                           |
-| Máximo de tokens por respuesta (clasificación)     | 1024                   | `ANTHROPIC_MAX_TOKENS_CLASSIFICATION` |
-| Máximo de tokens por respuesta (auto-respuesta)    | 2048                   | `ANTHROPIC_MAX_TOKENS_RESPONSE`       |
-| Temperatura clasificación                          | 0.0 (determinista)     | `ANTHROPIC_TEMP_CLASSIFICATION`       |
-| Temperatura auto-respuesta                         | 0.3 (poca creatividad) | `ANTHROPIC_TEMP_RESPONSE`             |
+| Parámetro                                          | Default                | Variable                        |
+| -------------------------------------------------- | ---------------------- | ------------------------------- |
+| Base URL del endpoint OpenAI-compat                | Gemini OpenAI-compat   | `LLM_BASE_URL`                  |
+| Timeout de request                                 | 30 s                   | `LLM_TIMEOUT_MS`                |
+| Reintentos por error transitorio (5xx, rate limit) | 3                      | `LLM_MAX_RETRIES`               |
+| Backoff inicial                                    | 1 s                    | `LLM_RETRY_BACKOFF_MS`          |
+| Backoff factor                                     | 2                      | (constante)                     |
+| Máximo de tokens por respuesta (clasificación)     | 2048                   | `LLM_MAX_TOKENS_CLASSIFICATION` |
+| Máximo de tokens por respuesta (auto-respuesta)    | 4096                   | `LLM_MAX_TOKENS_RESPONSE`       |
+| Temperatura clasificación                          | 0.0 (determinista)     | `LLM_TEMP_CLASSIFICATION`       |
+| Temperatura auto-respuesta                         | 0.3 (poca creatividad) | `LLM_TEMP_RESPONSE`             |
+| Prompt caching                                     | `false` (Gemini)       | `LLM_PROMPT_CACHE_ENABLED`      |
 
 ### 4.4 Estrategia de retries
 
-- **Errores transitorios** (`5xx`, `429`, `408`, fallos de red): reintentar con backoff exponencial hasta `ANTHROPIC_MAX_RETRIES` veces.
+- **Errores transitorios** (`5xx`, `429`, `408`, fallos de red): reintentar con backoff exponencial hasta `LLM_MAX_RETRIES` veces.
 - **Errores 4xx no rate-limit** (`400`, `401`, `403`): no reintentar. Loguear y propagar.
 - **Errores de validación de output** (JSON inválido, Zod falla): reintentar hasta `maxValidationRetries`, agregando en el siguiente intento un mensaje del tipo "tu respuesta anterior no fue JSON válido, devolvé exactamente el schema requerido".
 
@@ -290,15 +299,15 @@ Si `confianza < UMBRAL_CONFIANZA_CLASIFICACION` (default `0.7`):
 
 ### 5.6 Manejo de errores y fallback
 
-| Error                                           | Acción                                                                                                                                      |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Timeout de la API                               | Reintentar (backoff exponencial) hasta `ANTHROPIC_MAX_RETRIES`. Si se agota, marcar `requiere_revision_clasificacion` y notificar al admin. |
-| Rate limit (429)                                | Reintentar con backoff respetando el header `Retry-After`.                                                                                  |
-| 5xx persistente                                 | Marcar `requiere_revision_clasificacion`. Notificar al admin.                                                                               |
-| API key inválida (401)                          | No reintentar. Alarma crítica. Notificar al admin.                                                                                          |
-| JSON inválido tras reintentos                   | Marcar `requiere_revision_clasificacion`.                                                                                                   |
-| `area` no existe en el tenant                   | Tratar como confianza 0 → `requiere_revision_clasificacion`.                                                                                |
-| Texto del ticket vacío o muy corto (< 10 chars) | No llamar a la IA. Marcar `requiere_revision_clasificacion` con motivo `contenido_insuficiente`.                                            |
+| Error                                           | Acción                                                                                                                                |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Timeout de la API                               | Reintentar (backoff exponencial) hasta `LLM_MAX_RETRIES`. Si se agota, marcar `requiere_revision_clasificacion` y notificar al admin. |
+| Rate limit (429)                                | Reintentar con backoff respetando el header `Retry-After`.                                                                            |
+| 5xx persistente                                 | Marcar `requiere_revision_clasificacion`. Notificar al admin.                                                                         |
+| API key inválida (401)                          | No reintentar. Alarma crítica. Notificar al admin.                                                                                    |
+| JSON inválido tras reintentos                   | Marcar `requiere_revision_clasificacion`.                                                                                             |
+| `area` no existe en el tenant                   | Tratar como confianza 0 → `requiere_revision_clasificacion`.                                                                          |
+| Texto del ticket vacío o muy corto (< 10 chars) | No llamar a la IA. Marcar `requiere_revision_clasificacion` con motivo `contenido_insuficiente`.                                      |
 
 ### 5.7 Versionado de prompts
 
@@ -761,9 +770,15 @@ function renderTemplate(template: string, vars: Record<string, string>): string 
 
 ## 9. Prompt Caching
 
-Anthropic ofrece prompt caching para reducir costo y latencia cuando un mismo prefijo de prompt se reutiliza muchas veces.
+El prompt caching reduce costo y latencia cuando un mismo prefijo de prompt se reutiliza muchas veces. **Su disponibilidad depende del proveedor LLM configurado.**
 
-### 9.1 Estrategia de caching en Tikora
+### 9.1 Estado actual (setup con Gemini OpenAI-compat)
+
+Gemini vía su endpoint OpenAI-compatible **no expone prompt caching** en este momento. La flag `LLM_PROMPT_CACHE_ENABLED` vive en el config y queda en `false` por default. El impacto de costo es nulo hoy porque estamos en free tier.
+
+### 9.2 Cuando el proveedor lo soporta
+
+Si se migra a un proveedor que sí ofrece prompt caching (OpenAI con prefix caching automático, Anthropic vía proxy OpenAI-compatible, etc.), `AiClientService` puede activarlo cambiando `LLM_PROMPT_CACHE_ENABLED=true`. La estrategia esperada de cacheo es:
 
 | Componente                      | Cacheable | Por qué                                                                            |
 | ------------------------------- | --------- | ---------------------------------------------------------------------------------- |
@@ -773,15 +788,14 @@ Anthropic ofrece prompt caching para reducir costo y latencia cuando un mismo pr
 | System prompt de auto-respuesta | ✅        | Estable.                                                                           |
 | Chunks de KB en el user message | ❌        | Cambian por ticket.                                                                |
 
-**Implementación:** se marca el bloque cacheable con `cache_control: { type: 'ephemeral' }` en el SDK de Anthropic. El TTL por defecto es de 5 minutos; si el volumen de tickets justifica TTL extendido (1 h), se evalúa luego.
+### 9.3 Beneficio esperado (cuando se reactive)
 
-### 9.2 Beneficio esperado
+Con un volumen medio de tickets, el system + áreas representa ~70 % de los tokens de input por llamada de clasificación. Con caching, esos tokens pasan a costar una fracción del precio normal a partir de la segunda llamada dentro del TTL. Reducción esperada del costo de input: **~60-70 %** (con proveedores que lo soportan).
 
-Con un volumen medio de tickets de un tenant activo, el system + áreas representa ~70 % de los tokens de input por llamada de clasificación. Con caching, esos tokens pasan a costar una fracción del precio normal a partir de la segunda llamada dentro del TTL. Reducción esperada del costo de input: **~60-70 %**.
+### 9.4 Cuándo no cachear
 
-### 9.3 Cuándo no cachear
-
-- En desarrollo local: el caching tiene un costo mínimo en la primera escritura. Cuando se está iterando rápido sobre prompts (cambios cada pocos minutos), el caching no se amortiza. Se desactiva con la flag `ANTHROPIC_PROMPT_CACHE_ENABLED=false`.
+- En desarrollo local cuando se itera rápido sobre prompts (cambios cada pocos minutos): el caching no se amortiza. Mantener `LLM_PROMPT_CACHE_ENABLED=false`.
+- Cuando el proveedor configurado no lo soporta (caso actual con Gemini).
 
 ---
 
@@ -814,7 +828,7 @@ Esto suele resolver el problema en el primer reintento.
 
 ### 10.3 Degradación elegante
 
-Si la API de Anthropic está completamente inaccesible:
+Si la API del LLM configurado está completamente inaccesible:
 
 - La cola `classification` se pausa automáticamente.
 - Los tickets se quedan en estado `recibido` (no se pierden).
@@ -838,13 +852,13 @@ Si la API de Anthropic está completamente inaccesible:
 
 ### 11.2 PII y datos sensibles
 
-- En MVP no hay tratamiento especial de PII más allá de los principios generales: los datos viajan a Anthropic vía HTTPS, no se persisten del lado del proveedor según su política de no-training (que se debe verificar al contratar).
+- En MVP no hay tratamiento especial de PII más allá de los principios generales: los datos viajan al proveedor LLM vía HTTPS y se asume política de no-training del proveedor (verificar antes de contratar tier pago — Gemini, OpenAI, Anthropic publican términos distintos según el plan).
 - Si en una fase posterior se identifican campos sensibles (DNI, salarios, datos médicos), se agregará un módulo de `redaction` que enmascare antes de llamar a la IA.
 - Los logs internos del backend **redactan tokens, API keys, y campos marcados como sensibles** antes de escribir.
 
 ### 11.3 Refusals y contenido inapropiado
 
-- Claude puede negarse a responder si el ticket contiene contenido ofensivo, violento o ilegal. La respuesta del modelo en esos casos no cumplirá el schema de salida.
+- El LLM puede negarse a responder si el ticket contiene contenido ofensivo, violento o ilegal (refusal). La respuesta del modelo en esos casos típicamente no cumplirá el schema de salida y será capturada por la validación Zod.
 - El backend detecta este patrón (`respondable: false` con motivo de seguridad, o JSON faltante) y marca el ticket para revisión humana inmediata, notificando al admin con prioridad alta.
 
 ### 11.4 No exposición del prompt al cliente
@@ -868,7 +882,7 @@ Cada llamada a la IA emite un log con esta estructura (sin contenidos sensibles 
   "tenantId": "...",
   "ticketId": "...",
   "purpose": "classification",
-  "model": "claude-haiku-4-5-20251001",
+  "model": "gemini-2.5-flash",
   "promptVersion": "v1",
   "tokensInput": 1234,
   "tokensInputCached": 980,
@@ -912,8 +926,8 @@ Esto permite debugear por qué un ticket fue clasificado como fue, sin tener que
 
 Los costos relevantes son:
 
-- **Tokens de input** a Anthropic (con descuento por caching).
-- **Tokens de output** de Anthropic.
+- **Tokens de input** al proveedor LLM (con descuento por caching cuando aplica).
+- **Tokens de output** del proveedor LLM.
 - **Embeddings**: cero costo externo (corren localmente).
 - **Almacenamiento vectorial**: incluido en el plan de MongoDB Atlas.
 
@@ -926,7 +940,7 @@ Los costos relevantes son:
 | Cuerpo del ticket (no cacheable)     | ~200          | Variable según tamaño real                                    |
 | Output JSON                          | ~100          | Schema acotado                                                |
 
-**Costo aproximado por clasificación con Haiku 4.5 + caching activo:** una fracción de centavo. Para 10.000 tickets/mes, estamos en el orden de unos pocos dólares.
+**Costo aproximado por clasificación:** depende del proveedor configurado. En el setup actual (Gemini free tier) el costo es **cero** dentro de la cuota. Cuando se migre a tier pago, con un modelo de gama baja-media + caching activo (si lo soporta), el orden esperado es de fracción de centavo por clasificación — pocos dólares por cada 10.000 tickets/mes.
 
 ### 13.3 Estimación por ticket (Fase 2/3, auto-respuesta)
 
@@ -937,18 +951,18 @@ Los costos relevantes son:
 | Chunks de KB inyectados (5 × ~700)    | ~3500         |
 | Output (respuesta + sources)          | ~400          |
 
-**Costo aproximado por auto-respuesta con Sonnet 4.6:** del orden de centavos por ticket. La meta es que el porcentaje de tickets auto-respondidos sea suficiente para que el ahorro de tiempo de agente compense varias órdenes de magnitud el costo.
+**Costo aproximado por auto-respuesta:** cero en el setup actual (Gemini free tier dentro de cuota). En tier pago con un modelo de gama media, del orden de centavos por ticket. La meta es que el porcentaje de tickets auto-respondidos sea suficiente para que el ahorro de tiempo de agente compense varias órdenes de magnitud el costo.
 
 ### 13.4 Controles de costo
 
-- **Alarma por gasto mensual**: si se supera `ANTHROPIC_MONTHLY_BUDGET_USD`, se notifica al admin y opcionalmente se pausan colas no críticas.
+- **Alarma por gasto mensual**: si se supera `LLM_MONTHLY_BUDGET_USD`, se notifica al admin y opcionalmente se pausan colas no críticas. (Aplica solo cuando se usa tier pago; con free tier el corte lo hace el rate limit del proveedor.)
 - **Rate limiting interno**: máximo de N llamadas por minuto por tenant para evitar runaway costs por bug o ataque.
 - **Revisión periódica**: dashboard de costo por tenant, modelo y propósito.
 
 ### 13.5 Optimizaciones
 
 - Prompt caching agresivo (§9).
-- Modelos chicos (Haiku) para tareas chicas.
+- Modelos chicos (Gemini Flash / OpenAI mini / Claude Haiku según proveedor) para tareas chicas como clasificación.
 - Truncado del cuerpo del ticket si excede un máximo (default `MAX_TICKET_BODY_TOKENS = 4000`). Tickets más largos se truncan con nota.
 - Chunks de KB con tamaño calibrado para no exceder context.
 
@@ -997,7 +1011,7 @@ Se calculan periódicamente y se exponen al admin:
 
 Cualquier IA o desarrollador que implemente o modifique la capa de IA de Tikora debe respetar:
 
-- **Toda llamada al SDK de Anthropic pasa por `AiClientService`.** Ningún módulo importa `@anthropic-ai/sdk` directamente.
+- **Toda llamada al LLM pasa por `AiClientService`.** Ningún módulo importa `openai` directamente.
 - **Los prompts viven en archivos**, nunca inline en código. Versionados con sufijo `vN`.
 - **La salida estructurada se valida siempre con Zod** desde `@tikora/core` antes de persistir.
 - **Cada llamada lleva metadata** (`ticketId`, `purpose`, `promptVersion`) para trazabilidad.

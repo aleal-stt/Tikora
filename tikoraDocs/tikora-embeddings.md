@@ -57,7 +57,7 @@ Esto sucede en background, una vez por ticket candidato a auto-respuesta.
 
 ### 2.3 Lo que NO hacemos con embeddings (en MVP)
 
-- No los usamos para clasificar tickets (eso lo hace Claude directamente).
+- No los usamos para clasificar tickets (eso lo hace el LLM de generación directamente).
 - No los usamos para detectar tickets duplicados (puede ser una mejora futura).
 - No los usamos para autocompletar mientras el usuario escribe.
 

@@ -37,7 +37,9 @@
 
 ## 3. Cliente y proveedor de IA
 
-**Decisión:** **SDK oficial de Anthropic** (`@anthropic-ai/sdk`). Modelos sugeridos: **Claude Haiku 4.5** para clasificación y **Claude Sonnet 4.6** para generación de respuestas. Ambos configurables por variable de entorno.
+> ⚠ **Superseded por §26 (2026-05-08).** La decisión original abajo se mantiene como contexto histórico. La implementación actual usa el SDK de OpenAI contra un endpoint OpenAI-compatible, con Gemini free tier como proveedor por defecto.
+
+**Decisión original:** **SDK oficial de Anthropic** (`@anthropic-ai/sdk`). Modelos sugeridos: **Claude Haiku 4.5** para clasificación y **Claude Sonnet 4.6** para generación de respuestas. Ambos configurables por variable de entorno.
 
 **Opciones evaluadas:**
 
@@ -107,23 +109,23 @@
 
 **Módulos definidos:**
 
-| Módulo           | Responsabilidad                                                                                                                                          |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auth`           | Registro, login, refresh tokens, guard global JWT, decorador `@Public`.                                                                                  |
-| `users`          | CRUD de usuarios, perfil, asignación a una o varias áreas.                                                                                               |
-| `tenants`        | Modelo y resolución del tenant. En MVP existe uno solo, pero el módulo está listo para crecer.                                                           |
-| `areas`          | CRUD de áreas, listado de agentes asignados, configuración de SLAs por área.                                                                             |
-| `tickets`        | Modelo central, CRUD, estados, asignación, historial de interacciones.                                                                                   |
-| `classification` | Orquestador del pipeline de clasificación por IA: encola job, persiste resultado, dispara siguiente paso.                                                |
-| `ai-client`      | Cliente reutilizable del SDK de Anthropic. Encapsula prompt caching, retries, salida estructurada. Lo consumen `classification`, `auto-response` y `kb`. |
-| `kb`             | Documentos de la base de conocimiento, generación de embeddings, búsqueda vectorial. _(Modelo desde Fase 1; uso activo en Fase 2.)_                      |
-| `auto-response`  | Generación de la respuesta automática vía RAG. _(Activación en Fase 2.)_                                                                                 |
-| `notifications`  | Hub central de notificaciones. Recibe eventos de dominio y decide qué mandar y por dónde. Coordina los módulos `email` y `realtime`.                     |
-| `email`          | Cliente del proveedor transaccional de correo.                                                                                                           |
-| `realtime`       | Gateway SSE para la campanita de notificaciones del agente (ver decisión §12).                                                                           |
-| `sla`            | Cron de chequeo periódico, alertas previas y vencidas. _(Cron activo en Fase 4; modelo desde el inicio.)_                                                |
-| `feedback`       | Feedback estructurado del agente sobre la clasificación de la IA y sobre las respuestas auto-generadas.                                                  |
-| `health`         | Endpoint de health check para readiness/liveness probes.                                                                                                 |
+| Módulo           | Responsabilidad                                                                                                                                                                                                                                                               |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth`           | Registro, login, refresh tokens, guard global JWT, decorador `@Public`.                                                                                                                                                                                                       |
+| `users`          | CRUD de usuarios, perfil, asignación a una o varias áreas.                                                                                                                                                                                                                    |
+| `tenants`        | Modelo y resolución del tenant. En MVP existe uno solo, pero el módulo está listo para crecer.                                                                                                                                                                                |
+| `areas`          | CRUD de áreas, listado de agentes asignados, configuración de SLAs por área.                                                                                                                                                                                                  |
+| `tickets`        | Modelo central, CRUD, estados, asignación, historial de interacciones.                                                                                                                                                                                                        |
+| `classification` | Orquestador del pipeline de clasificación por IA: encola job, persiste resultado, dispara siguiente paso.                                                                                                                                                                     |
+| `ai-client`      | Cliente reutilizable del SDK de OpenAI apuntando a endpoint OpenAI-compatible (Gemini por default). Encapsula retries, salida estructurada validada con Zod y prompt caching cuando el proveedor lo soporta. Lo consumen `classification`, `auto-response` y `kb`. (Ver §26.) |
+| `kb`             | Documentos de la base de conocimiento, generación de embeddings, búsqueda vectorial. _(Modelo desde Fase 1; uso activo en Fase 2.)_                                                                                                                                           |
+| `auto-response`  | Generación de la respuesta automática vía RAG. _(Activación en Fase 2.)_                                                                                                                                                                                                      |
+| `notifications`  | Hub central de notificaciones. Recibe eventos de dominio y decide qué mandar y por dónde. Coordina los módulos `email` y `realtime`.                                                                                                                                          |
+| `email`          | Cliente del proveedor transaccional de correo.                                                                                                                                                                                                                                |
+| `realtime`       | Gateway SSE para la campanita de notificaciones del agente (ver decisión §12).                                                                                                                                                                                                |
+| `sla`            | Cron de chequeo periódico, alertas previas y vencidas. _(Cron activo en Fase 4; modelo desde el inicio.)_                                                                                                                                                                     |
+| `feedback`       | Feedback estructurado del agente sobre la clasificación de la IA y sobre las respuestas auto-generadas.                                                                                                                                                                       |
+| `health`         | Endpoint de health check para readiness/liveness probes.                                                                                                                                                                                                                      |
 
 **Por qué se eligió este granulado:** Cada módulo encapsula un único concepto de dominio y se puede testear, modificar o eventualmente extraer sin tocar el resto. Mantenemos `email` y `realtime` separados de `notifications` porque son canales de transporte distintos (uno externo, uno interno con WebSocket); `notifications` es el módulo de coordinación que decide _qué evento se manda por dónde_. Esto permite agregar canales nuevos a futuro (Slack, Teams, push móvil) sin reescribir la lógica de cuándo notificar.
 
@@ -276,9 +278,9 @@ AppModule
 | Transformers.js local (`multilingual-e5-small`) | Gratis                                  | Sin dependencia externa, sin rate limits, offline, datos no salen del servidor | ~200 MB de RAM extra, CPU al generar embeddings                           |
 | Voyage AI (`voyage-3-lite` free tier)           | Free tier 50M tokens/mes, luego de pago | Calidad superior, sin carga local                                              | Dependencia de un tercero, free tier puede cambiar, datos viajan a su API |
 | OpenAI (`text-embedding-3-small`)               | De pago desde el primer token           | Buena calidad                                                                  | Costo no nulo desde el día 1                                              |
-| Anthropic                                       | —                                       | —                                                                              | Anthropic no ofrece API de embeddings                                     |
+| Proveedores genéricos vía SDK OpenAI            | Variable                                | —                                                                              | Gemini (proveedor actual) no expone API de embeddings vía OpenAI-compat   |
 
-**Por qué se eligió Transformers.js:** El proyecto requiere mantener costos en el plan actual de Anthropic sin incurrir en gastos adicionales por servicios de terceros. Transformers.js permite correr el modelo de embeddings dentro del mismo proceso del backend (o en un worker de BullMQ), eliminando dependencias externas y cualquier riesgo de rate limit o cambio de pricing. La generación de embeddings ocurre en background (al cargar/editar documentos de KB y al evaluar candidatos de auto-respuesta), no en el camino crítico del request, así que el costo en CPU es absorbible. Si en el futuro se necesita mejor calidad, la abstracción del módulo `kb` permite cambiar de proveedor sin tocar el resto del sistema.
+**Por qué se eligió Transformers.js:** El proyecto requiere mantener costos a cero durante el MVP sin incurrir en gastos adicionales por servicios de terceros para embeddings. Transformers.js permite correr el modelo de embeddings dentro del mismo proceso del backend (o en un worker de BullMQ), eliminando dependencias externas y cualquier riesgo de rate limit o cambio de pricing. La generación de embeddings ocurre en background (al cargar/editar documentos de KB y al evaluar candidatos de auto-respuesta), no en el camino crítico del request, así que el costo en CPU es absorbible. Si en el futuro se necesita mejor calidad, la abstracción del módulo `kb` permite cambiar de proveedor sin tocar el resto del sistema.
 
 **Por qué solo markdown/texto:** la extracción de texto de PDFs es ruidosa (saltos de página, headers, footers, tablas mal formateadas) y degrada la calidad del RAG. Es preferible que el administrador convierta sus PDFs a markdown una vez, con la estructura limpia, que mantener un pipeline de extracción frágil. PDF se puede agregar en una fase posterior con extracción asistida.
 
@@ -302,7 +304,9 @@ AppModule
 
 ## 13. Proveedor de email transaccional
 
-**Decisión:** **Resend** en su tier gratuito (3.000 correos/mes, 100/día).
+> ⚠ **Superseded por §27 (2026-05-08).** La decisión original abajo se mantiene como contexto histórico. La implementación actual usa SMTP genérico vía nodemailer (Gmail con app password es la opción gratis recomendada para piloto).
+
+**Decisión original:** **Resend** en su tier gratuito (3.000 correos/mes, 100/día).
 
 **Opciones evaluadas:**
 
@@ -594,3 +598,64 @@ src/{feature}/
 | Cookie httpOnly del access token                                                 | Reusa la cookie                                                                                                      | Implica meter el access en cookie también, ampliando superficie y complicando CSRF                     |
 
 **Por qué se eligió:** `EventSource` no permite headers, y queremos mantenerlo por su reconexión automática y su simplicidad. El ticket corto desacopla la auth del stream del access token de la app: si se filtra un ticket, el daño es acotado a un único uso de pocos segundos. El endpoint `/auth/sse-ticket` es trivial de implementar (firma JWT con expiración corta, marca de single-use en cache de Redis) y se reutiliza si en el futuro otros canales requieren un patrón similar (descargas firmadas, websockets, etc.).
+
+---
+
+## 26. Cliente y proveedor de IA (revisión, supersedes §3)
+
+**Decisión:** **SDK oficial de OpenAI** (`openai`) apuntando a un **endpoint OpenAI-compatible**. Proveedor por defecto en el setup actual: **Gemini free tier** (`https://generativelanguage.googleapis.com/v1beta/openai/`) con modelos `gemini-2.5-flash` para clasificación y generación de respuestas. Todo configurable por variable de entorno (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL_CLASSIFICATION`, `LLM_MODEL_RESPONSE`).
+
+**Por qué se revisó:**
+
+La decisión original (§3) eligió el SDK de Anthropic asumiendo costo cubierto del plan inicial del proyecto. Durante el desarrollo se necesitó iterar Fase 2 (auto-respuesta con RAG) con un volumen alto de llamadas para refinamiento de prompts, sin presupuesto disponible para pagar tokens. Las alternativas evaluadas fueron seguir pagando, suspender el desarrollo hasta presupuesto, o migrar a un proveedor con free tier suficiente.
+
+**Opciones evaluadas en la revisión:**
+
+| Opción                                                       | Costo                      | Pros                                                                                                                                                          | Contras                                                                                                        |
+| ------------------------------------------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| SDK OpenAI contra endpoint OpenAI-compat de Gemini (elegida) | Free tier (15 RPM)         | Cero costo en MVP; cambiar de proveedor compatible (OpenAI, OpenRouter, vLLM self-hosted) es solo cambiar 3 envs; abstracción ya provista por el SDK estándar | Free tier rate-limit bajo, sin prompt caching, sin features avanzadas del SDK Anthropic                        |
+| Mantener Anthropic SDK con saldo pagado                      | Pago desde el primer token | Prompt caching nativo (decisivo en RAG), tool use, citations, structured output con JSON schema, calidad de Claude                                            | Sin presupuesto disponible                                                                                     |
+| OpenRouter como router multi-modelo                          | Pago, por modelo           | Cambio de modelo sin cambiar SDK                                                                                                                              | Hop intermedio agrega latencia; no expone features avanzadas; no resuelve el problema de costo                 |
+| Abstracción propia con adaptadores (Anthropic + OpenAI + …)  | —                          | Máxima flexibilidad                                                                                                                                           | Sobre-ingeniería para MVP; mantenimiento doble; la API de OpenAI ya es de facto estándar de muchos proveedores |
+
+**Por qué se eligió:** El SDK de OpenAI se convirtió de facto en el "estándar HTTP" para LLMs — Gemini, OpenRouter, vLLM, Ollama, LM Studio y muchos otros exponen endpoints compatibles. Apoyarse en ese SDK con `baseURL` configurable nos da una abstracción gratis: cambiar de Gemini a OpenAI, Anthropic vía proxy compatible, o un modelo self-hosted, es modificar `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL_*` sin tocar código. Gemini free tier en particular cubre el volumen de iteración del MVP sin gastar nada.
+
+**Trade-offs aceptados:**
+
+- **Prompt caching desactivado.** El endpoint OpenAI-compat de Gemini no lo soporta. La flag `LLM_PROMPT_CACHE_ENABLED` queda en el config para reactivarlo cuando el proveedor lo soporte (OpenAI con prefix caching, Anthropic via proxy compatible, etc.). El impacto de costo es nulo hoy porque estamos en free tier.
+- **Rate limit del free tier (~15 RPM).** Aceptable para MVP y demos. BullMQ ya tiene reintentos con backoff que absorben límites transitorios. Para producción real con volumen alto se subirá a tier pago o se migrará a otro proveedor (cambio de envs).
+- **Sin features avanzadas Anthropic-only.** No usamos citations ni tool use por ahora; salida estructurada se valida con Zod manualmente en `AiClientService`, igual que se haría con cualquier proveedor.
+
+**Reglas operativas que se preservan de §3:**
+
+- Toda llamada al LLM pasa por `AiClientService`. Ningún módulo importa el SDK directamente.
+- La salida estructurada se valida con Zod desde `@tikora/core` antes de persistirse; si falla, reintento con prompt correctivo.
+- Cada llamada lleva metadata (`ticketId`, `purpose`, `promptVersion`) para trazabilidad.
+- Las API keys y modelos viven exclusivamente en variables de entorno.
+
+---
+
+## 27. Proveedor de email transaccional (revisión, supersedes §13)
+
+**Decisión:** **SMTP genérico vía `nodemailer`**. Variable `EMAIL_DELIVERY_MODE` (`log` por default en dev, `live` en prod) y `SMTP_*` (host, port, secure, user, pass). Opción gratis recomendada para piloto: **Gmail con app password** (~500 destinatarios/día sin costo). Cualquier proveedor SMTP funciona cambiando envs (Brevo, SendGrid, Outlook, Zoho, servidor propio, AWS SES).
+
+**Por qué se revisó:**
+
+§13 eligió Resend asumiendo dominio propio verificado para el MVP. Durante el desarrollo se priorizó arrancar las pruebas sin trámite de dominio ni alta en servicio externo, y se necesitó un canal de envío inmediato y gratuito para piloto interno. Resend exige dominio verificado para mandar a cualquier dirección distinta de la del dueño de la cuenta — bloqueante para validar el flujo end-to-end con varios destinatarios de prueba.
+
+**Opciones evaluadas en la revisión:**
+
+| Opción                                         | Setup                                                 | Pros                                                                              | Contras                                                                               |
+| ---------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| SMTP genérico vía nodemailer (elegida)         | Cuenta SMTP cualquiera (Gmail app pw es lo más fácil) | Sin lock-in al proveedor; gratis para piloto; cambiar proveedor es modificar envs | Necesita configurar SMTP\_\*; reputación de IP depende del proveedor (Gmail es buena) |
+| Resend (decisión original §13)                 | Dominio propio verificado obligatorio                 | API moderna, dashboards bonitos                                                   | Bloqueante en dev temprano: sin dominio no se manda a destinatarios externos          |
+| API de proveedor específico (SendGrid/Mailgun) | Cuenta + verificación                                 | Dashboards, analytics                                                             | Mismo lock-in que Resend, sin ganancia clara sobre SMTP                               |
+
+**Por qué se eligió:** SMTP es el lenguaje universal del correo. Apoyarse en nodemailer con `SMTP_*` envs reproduce la misma abstracción del módulo `email` original — el día que se quiera mover a Resend / SendGrid / SES con dominio propio verificado, basta con cambiar credenciales (todos exponen relay SMTP). Gmail con app password tiene reputación de IP excelente y cobertura suficiente para piloto interno sin papeleo previo.
+
+**Reglas operativas:**
+
+- En `EMAIL_DELIVERY_MODE=log` los correos se imprimen en consola (default dev). En `live` se envían realmente.
+- `EMAIL_FROM` debe coincidir con `SMTP_USER` cuando se usa Gmail (anti-spoofing). Otros proveedores son más flexibles.
+- La abstracción `EmailDeliverer` del módulo `email` aísla del proveedor: cambiar de SMTP a una API HTTP-only es swap de implementación.
+- Nunca versionar `SMTP_PASS` ni `EMAIL_*` con valores reales — `.env.example` solo trae placeholders.
