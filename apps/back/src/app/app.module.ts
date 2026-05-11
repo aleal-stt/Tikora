@@ -44,13 +44,20 @@ import { UsersModule } from '../users/users.module';
     }),
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>) => [
-        {
-          name: 'default',
-          ttl: config.get('THROTTLE_DEFAULT_TTL_SECONDS', { infer: true }) * 1000,
-          limit: config.get('THROTTLE_DEFAULT_LIMIT', { infer: true }),
-        },
-      ],
+      useFactory: (config: ConfigService<Env, true>) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: config.get('THROTTLE_DEFAULT_TTL_SECONDS', { infer: true }) * 1000,
+            limit: config.get('THROTTLE_DEFAULT_LIMIT', { infer: true }),
+          },
+        ],
+        // Bypass total para suites E2E — el throttler aplica también a los
+        // decoradores `@Throttle` de los controllers (login/refresh), y sin
+        // este escape los specs caen 429 al hacer múltiples logins seguidos.
+        // Activar SOLO desde `apps/front-e2e/playwright.config.ts`.
+        skipIf: () => config.get('E2E_NO_THROTTLE', { infer: true }) === true,
+      }),
     }),
     // Bus in-process para events de dominio. NotificationsModule escucha;
     // tickets/classification/interactions emiten. Single-instance — al

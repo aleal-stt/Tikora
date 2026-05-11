@@ -56,6 +56,12 @@ export const envSchema = z.object({
   THROTTLE_DEFAULT_TTL_SECONDS: z.coerce.number().int().positive().default(60),
   THROTTLE_DEFAULT_LIMIT: z.coerce.number().int().positive().default(120),
 
+  // Escape total del throttler — únicamente para suites E2E. Cuando es
+  // `true`, el `skipIf` del ThrottlerModule deja pasar todo (incluidos
+  // los decoradores `@Throttle` del controller de auth). Nunca activar
+  // en producción.
+  E2E_NO_THROTTLE: booleanString.default(false),
+
   // Email — `log` imprime a stdout (dev). `live` usa el adapter SMTP
   // (`SmtpEmailDeliverer`) con las variables `SMTP_*` de abajo. Para
   // free tier recomendamos Gmail con app password (~500 emails/día).

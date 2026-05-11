@@ -67,6 +67,11 @@ export default defineConfig({
         SEED_E2E_USERS: 'true',
         SWAGGER_ENABLED: 'false',
         LOG_LEVEL: 'warn',
+        // Las suites hacen ráfagas de logins/refreshes que disparan el
+        // throttler (incluidos los decoradores `@Throttle` del auth
+        // controller, que son literales y no leen de env). El bypass se
+        // activa con esta flag y solo aplica al boot del back en E2E.
+        E2E_NO_THROTTLE: 'true',
       },
     },
     {
