@@ -1,4 +1,5 @@
 import { Controller, Get, HttpCode, HttpStatus, Param, Patch, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type {
   Notification as NotificationResponse,
   NotificationListResponse,
@@ -9,6 +10,8 @@ import type { AuthenticatedUser } from '../../auth/types/auth.types';
 import { ListNotificationsQueryDto } from '../dto/list-notifications.query.dto';
 import { NotificationsService } from '../services/notifications.service';
 
+@ApiTags('Notifications')
+@ApiBearerAuth('bearer')
 @Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}

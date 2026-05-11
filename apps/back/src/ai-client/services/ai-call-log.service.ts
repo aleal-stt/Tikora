@@ -44,8 +44,11 @@ export class AiCallLogService {
 
   async record(params: RecordCallParams): Promise<void> {
     try {
+      // `tenantId` siempre debe ser un ObjectId válido — si no lo es,
+      // hay un bug aguas arriba y queremos que el try/catch lo capture.
+      // `ticketId` sí puede ser null (llamadas sin ticket asociado).
       await this.model.create({
-        tenantId: this.toOidOrNull(params.tenantId),
+        tenantId: new Types.ObjectId(params.tenantId),
         ticketId: params.ticketId ? this.toOidOrNull(params.ticketId) : null,
         purpose: params.purpose,
         modelo: params.modelo,

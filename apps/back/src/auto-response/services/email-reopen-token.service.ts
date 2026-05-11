@@ -50,7 +50,10 @@ export class EmailReopenTokenService {
   sign(payload: ReopenTokenPayload): string {
     return this.jwt.sign(payload, {
       secret: this.secret,
-      expiresIn: this.expiresIn,
+      // El tipo de `expiresIn` en JwtSignOptions es `ms.StringValue | number`
+      // (lib `ms`). Lo recibimos del env como string ya validado por Zod;
+      // el cast evita acoplar al tipo interno de `ms`.
+      expiresIn: this.expiresIn as never,
     });
   }
 

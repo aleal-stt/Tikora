@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Interaction as InteractionResponse, InteractionListResponse } from '@tikora/core';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../auth/types/auth.types';
@@ -9,6 +10,8 @@ import { InteractionsService } from '../services/interactions.service';
 // Las interacciones viven dentro del recurso ticket, por eso comparten el
 // path `/tickets/:id/interactions`. El controller usa ese prefix para que
 // el contrato HTTP coincida con `tikora-api.md` §7.10.
+@ApiTags('Interactions')
+@ApiBearerAuth('bearer')
 @Controller('tickets/:ticketId/interactions')
 export class InteractionsController {
   constructor(private readonly interactions: InteractionsService) {}

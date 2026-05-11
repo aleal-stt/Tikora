@@ -187,6 +187,11 @@ export const envSchema = z.object({
   // mantenimiento los borre físicamente del índice vectorial. Conservar al
   // menos 7 días para auditoría de respuestas IA.
   KB_INACTIVE_CHUNKS_RETENTION_DAYS: z.coerce.number().int().min(1).default(30),
+
+  // Documentación OpenAPI/Swagger expuesta en `/api/docs`. En prod
+  // conviene apagarla salvo que se sirva detrás de auth — los schemas
+  // de la API son superficie de inteligencia para un atacante.
+  SWAGGER_ENABLED: booleanString.default(true),
 });
 
 export type Env = z.infer<typeof envSchema>;

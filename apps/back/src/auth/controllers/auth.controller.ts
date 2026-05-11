@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { LoginResponse, RefreshResponse } from '@tikora/core';
 import type { CookieOptions, Request, Response } from 'express';
@@ -18,6 +19,8 @@ import type { AuthenticatedUser } from '../types/auth.types';
 // el otro (los valores son literales porque los decoradores no inyectan config).
 const AUTH_THROTTLE = { default: { ttl: 60_000, limit: 10 } } as const;
 
+@ApiTags('Auth')
+@ApiBearerAuth('bearer')
 @Controller('auth')
 export class AuthController {
   constructor(

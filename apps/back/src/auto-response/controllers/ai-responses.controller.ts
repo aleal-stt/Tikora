@@ -8,6 +8,7 @@ import {
   Patch,
   Body,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { AiResponse as AiResponseDto } from '@tikora/core';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Roles } from '../../auth/decorators/roles.decorator';
@@ -23,6 +24,8 @@ import { AutoResponseService } from '../services/auto-response.service';
  * El RBAC fino lo aplica `AutoResponseService` (LID/AGE solo sobre tickets
  * de áreas que tocan; ADM siempre).
  */
+@ApiTags('AI Responses')
+@ApiBearerAuth('bearer')
 @Controller()
 export class AiResponsesController {
   constructor(private readonly autoResponse: AutoResponseService) {}

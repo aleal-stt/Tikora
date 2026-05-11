@@ -8,6 +8,7 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { ClassificationFeedback as ClassificationFeedbackDto } from '@tikora/core';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Roles } from '../../auth/decorators/roles.decorator';
@@ -19,6 +20,8 @@ import { FeedbackService } from '../services/feedback.service';
  * `tikora-api.md` §14. Endpoints de feedback de clasificación. POST hace
  * upsert (idempotente sobre el par tenant/ticket).
  */
+@ApiTags('Feedback')
+@ApiBearerAuth('bearer')
 @Controller('tickets/:ticketId/classification-feedback')
 export class FeedbackController {
   constructor(private readonly feedback: FeedbackService) {}

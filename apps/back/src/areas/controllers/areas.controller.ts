@@ -10,6 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type {
   Area as AreaResponse,
   AreaListResponseFull,
@@ -26,6 +27,8 @@ import { UpdateAreaDto } from '../dto/update-area.dto';
 import { UpdateSlasDto } from '../dto/update-slas.dto';
 import { AreasService } from '../services/areas.service';
 
+@ApiTags('Areas')
+@ApiBearerAuth('bearer')
 @Controller('areas')
 export class AreasController {
   constructor(private readonly areas: AreasService) {}

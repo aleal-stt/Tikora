@@ -11,6 +11,7 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type {
   KbDocument as KbDocumentResponse,
   KbDocumentListItem,
@@ -34,6 +35,8 @@ import { KbService } from '../services/kb.service';
  *
  * Match con `tikora-api.md` §9.
  */
+@ApiTags('Knowledge Base')
+@ApiBearerAuth('bearer')
 @Roles('lider', 'admin')
 @Controller('kb-documents')
 export class KbController {

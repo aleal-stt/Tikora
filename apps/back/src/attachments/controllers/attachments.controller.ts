@@ -14,6 +14,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Attachment as AttachmentResponse } from '@tikora/core';
 import { ATTACHMENT_MAX_SIZE_BYTES } from '@tikora/core';
 import type { Response } from 'express';
@@ -31,6 +32,8 @@ interface UploadedAttachment {
   size: number;
 }
 
+@ApiTags('Attachments')
+@ApiBearerAuth('bearer')
 @Controller('tickets/:ticketId/attachments')
 export class AttachmentsController {
   constructor(private readonly attachments: AttachmentsService) {}

@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { AreaMetricsResponse } from '@tikora/core';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Roles } from '../../auth/decorators/roles.decorator';
@@ -11,6 +12,8 @@ import { MetricsService } from '../services/metrics.service';
  * el ciclo `AreasModule ↔ MetricsModule`. El path `/areas/:areaId/metrics`
  * coincide con el contrato de `tikora-api.md` §6.2 igual.
  */
+@ApiTags('Metrics')
+@ApiBearerAuth('bearer')
 @Controller('areas/:areaId/metrics')
 export class MetricsController {
   constructor(private readonly metrics: MetricsService) {}

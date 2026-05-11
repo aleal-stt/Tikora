@@ -1,4 +1,5 @@
 import { Controller, HttpStatus, Query, Sse } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { interval, map, merge, Observable, Subject, take } from 'rxjs';
 import { ApiException } from '../../common/exceptions/api.exception';
 import { Public } from '../../auth/decorators/public.decorator';
@@ -19,6 +20,7 @@ const HEARTBEAT_MS = 30_000;
  * (que requiere `Authorization: Bearer`); la autenticación se hace por
  * `?ticket=` con `SseTicketsService.consume` (single-use, TTL 90s).
  */
+@ApiTags('SSE Stream (público con ticket corto)')
 @Controller('notifications')
 export class SseStreamController {
   constructor(private readonly sseTickets: SseTicketsService, private readonly hub: SseHub) {}

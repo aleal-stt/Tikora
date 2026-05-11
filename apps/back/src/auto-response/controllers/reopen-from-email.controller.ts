@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, HttpStatus, Logger, Param, Post } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import type { TicketResponse } from '@tikora/core';
+import { ApiTags } from '@nestjs/swagger';
+import type { Ticket as TicketResponse } from '@tikora/core';
 import { Model, Types } from 'mongoose';
 import type { AuthenticatedUser } from '../../auth/types/auth.types';
 import { Public } from '../../auth/decorators/public.decorator';
@@ -22,6 +23,7 @@ const REOPEN_FROM_EMAIL_MOTIVO = 'Auto-respuesta insuficiente — reapertura des
  * segunda recibe `TICKET_TRANSITION_INVALID` (el ticket ya no está
  * `cerrado`).
  */
+@ApiTags('Auto-response (reapertura desde email)')
 @Controller('tickets/:ticketId/reopen-from-email')
 export class ReopenFromEmailController {
   private readonly logger = new Logger(ReopenFromEmailController.name);

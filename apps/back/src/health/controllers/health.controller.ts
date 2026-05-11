@@ -1,8 +1,10 @@
 import { Controller, Get } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
+import { ApiTags } from '@nestjs/swagger';
 import { Connection } from 'mongoose';
 import { Public } from '../../auth/decorators/public.decorator';
 
+@ApiTags('Health')
 @Controller('health')
 export class HealthController {
   private readonly startedAt = Date.now();

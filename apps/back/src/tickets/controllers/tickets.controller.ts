@@ -9,6 +9,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Ticket as TicketResponse, TicketListResponse } from '@tikora/core';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { Roles } from '../../auth/decorators/roles.decorator';
@@ -23,6 +24,8 @@ import { ReopenTicketDto } from '../dto/reopen-ticket.dto';
 import { ResolveTicketDto } from '../dto/resolve-ticket.dto';
 import { TicketsService } from '../services/tickets.service';
 
+@ApiTags('Tickets')
+@ApiBearerAuth('bearer')
 @Controller('tickets')
 export class TicketsController {
   constructor(private readonly tickets: TicketsService) {}
