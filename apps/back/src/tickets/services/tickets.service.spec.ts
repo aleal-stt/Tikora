@@ -382,26 +382,36 @@ describe('TicketsService.classify', () => {
   });
 
   it('clasifica y calcula slaDeadline desde slas del área', async () => {
-    const ticket = buildTicketDoc({ estado: 'requiere_revision_clasificacion' });
-    const area = {
-      _id: new Types.ObjectId(),
-      tenantId: TENANT_ID,
-      active: true,
-      slas: { alta: 4, media: 24, baja: 48 },
-    };
-    const { service } = buildHarness({ ticket, area });
+    // Reloj fijo dentro de horario hábil ART (10:00 = 13:00 UTC, lunes
+    // 2026-05-11). Si el test corre fuera de 07-18 ART el cálculo de
+    // business-hours empuja el deadline al día hábil siguiente y rompe
+    // la cota de "≤ now + 4h". Real timers se restauran al salir.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-11T13:00:00Z'));
+    try {
+      const ticket = buildTicketDoc({ estado: 'requiere_revision_clasificacion' });
+      const area = {
+        _id: new Types.ObjectId(),
+        tenantId: TENANT_ID,
+        active: true,
+        slas: { alta: 4, media: 24, baja: 48 },
+      };
+      const { service } = buildHarness({ ticket, area });
 
-    const result = await service.classify(asAdmin(), ticket._id.toString(), {
-      areaId: area._id.toString(),
-      prioridad: 'alta',
-    });
+      const result = await service.classify(asAdmin(), ticket._id.toString(), {
+        areaId: area._id.toString(),
+        prioridad: 'alta',
+      });
 
-    expect(result.estado).toBe('escalado');
-    expect(result.prioridad).toBe('alta');
-    expect(result.slaDeadline).not.toBeNull();
-    const deadlineMs = new Date(result.slaDeadline as string).getTime();
-    expect(deadlineMs).toBeGreaterThan(Date.now());
-    expect(deadlineMs).toBeLessThanOrEqual(Date.now() + 4 * 60 * 60 * 1000 + 1000);
+      expect(result.estado).toBe('escalado');
+      expect(result.prioridad).toBe('alta');
+      expect(result.slaDeadline).not.toBeNull();
+      const deadlineMs = new Date(result.slaDeadline as string).getTime();
+      expect(deadlineMs).toBeGreaterThan(Date.now());
+      expect(deadlineMs).toBeLessThanOrEqual(Date.now() + 4 * 60 * 60 * 1000 + 1000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
