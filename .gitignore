@@ -58,3 +58,5 @@ apps/front/.vite/
 
 vite.config.*.timestamp*
 vitest.config.*.timestamp*
+# Adjuntos locales (dev). En prod van a object storage.
+/uploads/
