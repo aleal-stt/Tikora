@@ -24,8 +24,12 @@ export class AiResponseSourceChunk {
   @Prop({ type: Number, required: true })
   score!: number;
 
-  /** Descripción libre que devolvió el modelo en `usedFor`. */
-  @Prop({ type: String, required: true })
+  /**
+   * Descripción libre que devolvió el modelo en `usedFor`. Vacío cuando
+   * persistimos chunks recuperados pero sin output del modelo (caso de
+   * `persistFailure`: el LLM falló antes de citar fuentes).
+   */
+  @Prop({ type: String, default: '' })
   usedFor!: string;
 }
 
