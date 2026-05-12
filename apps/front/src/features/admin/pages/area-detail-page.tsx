@@ -29,7 +29,7 @@ export function AreaDetailPage() {
   const isAdmin = callerRole === 'admin';
 
   const areaQuery = useArea(id);
-  const usersQuery = useUsers({ limit: 200 });
+  const usersQuery = useUsers({ limit: 100 });
 
   const addAgent = useAddAreaAgent();
   const removeAgent = useRemoveAreaAgent();
