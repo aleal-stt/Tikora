@@ -154,7 +154,11 @@ export function UserFormDialog({ open, onOpenChange, user, areas }: UserFormDial
               <Label>Rol</Label>
               <Select
                 value={editForm.watch('role')}
-                onValueChange={(value) => editForm.setValue('role', value as Role)}
+                onValueChange={(value) => {
+                  const nextRole = value as Role;
+                  editForm.setValue('role', nextRole);
+                  if (nextRole === 'empleado') editForm.setValue('areaIds', []);
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccioná un rol" />
@@ -176,8 +180,13 @@ export function UserFormDialog({ open, onOpenChange, user, areas }: UserFormDial
                 options={areas}
                 value={editForm.watch('areaIds') ?? []}
                 onChange={(next) => editForm.setValue('areaIds', next)}
+                disabled={editForm.watch('role') === 'empleado'}
               />
-              <FieldError message={editForm.formState.errors.areaIds?.message} />
+              {editForm.watch('role') === 'empleado' ? (
+                <p className="text-xs text-slate-500">Los empleados no se asignan a áreas.</p>
+              ) : (
+                <FieldError message={editForm.formState.errors.areaIds?.message} />
+              )}
             </div>
 
             <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -210,7 +219,11 @@ export function UserFormDialog({ open, onOpenChange, user, areas }: UserFormDial
               <Label>Rol</Label>
               <Select
                 value={createForm.watch('role')}
-                onValueChange={(value) => createForm.setValue('role', value as Role)}
+                onValueChange={(value) => {
+                  const nextRole = value as Role;
+                  createForm.setValue('role', nextRole);
+                  if (nextRole === 'empleado') createForm.setValue('areaIds', []);
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccioná un rol" />
@@ -231,7 +244,11 @@ export function UserFormDialog({ open, onOpenChange, user, areas }: UserFormDial
                 options={areas}
                 value={createForm.watch('areaIds') ?? []}
                 onChange={(next) => createForm.setValue('areaIds', next)}
+                disabled={createForm.watch('role') === 'empleado'}
               />
+              {createForm.watch('role') === 'empleado' && (
+                <p className="text-xs text-slate-500">Los empleados no se asignan a áreas.</p>
+              )}
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="temporaryPassword">Contraseña temporal</Label>
