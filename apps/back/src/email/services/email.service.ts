@@ -23,6 +23,15 @@ interface AutoResponseEmailParams {
   reopenLink?: string | null;
 }
 
+interface AgentReplyEmailParams {
+  to: string;
+  fullName: string;
+  ticketShortCode: string;
+  asunto: string;
+  body: string;
+  agentFullName: string;
+}
+
 @Injectable()
 export class EmailService {
   constructor(
@@ -92,6 +101,47 @@ export class EmailService {
   <p>${bodyHtml}</p>
   <p style="color: #4b5563;">${escape(args.closing)}</p>
   ${button}
+  <p style="color: #6b7280; font-size: 12px; margin-top: 24px;">${escape(args.sign)}</p>
+</body></html>`;
+  }
+
+  /**
+   * Envía una respuesta del agente al solicitante manteniendo el ticket
+   * abierto (a diferencia de la auto-respuesta, que cierra). No incluye
+   * botón de reapertura porque el ticket sigue en curso; el solicitante
+   * puede responder por mail o desde la app.
+   */
+  async sendAgentReplyEmail(params: AgentReplyEmailParams): Promise<{ messageId: string | null }> {
+    const subject = `Re: [${params.ticketShortCode}] ${params.asunto}`;
+    const greeting = `Hola ${params.fullName},`;
+    const closing =
+      'Si necesitás agregar algo, respondé este correo o seguí la conversación en la plataforma.';
+    const sign = `— ${params.agentFullName} · Equipo Tikora`;
+    const text = `${greeting}\n\n${params.body}\n\n${closing}\n\n${sign}`;
+    const html = this.renderAgentReplyHtml({
+      greeting,
+      body: params.body,
+      closing,
+      sign,
+    });
+    const result = await this.deliverer.send({ to: params.to, subject, text, html });
+    return { messageId: result.messageId };
+  }
+
+  private renderAgentReplyHtml(args: {
+    greeting: string;
+    body: string;
+    closing: string;
+    sign: string;
+  }): string {
+    const escape = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const bodyHtml = escape(args.body).replace(/\n/g, '<br>');
+    return `<!doctype html>
+<html lang="es"><body style="font-family: -apple-system, system-ui, sans-serif; color: #111827; max-width: 640px; margin: 0 auto; padding: 24px;">
+  <p>${escape(args.greeting)}</p>
+  <p>${bodyHtml}</p>
+  <p style="color: #4b5563;">${escape(args.closing)}</p>
   <p style="color: #6b7280; font-size: 12px; margin-top: 24px;">${escape(args.sign)}</p>
 </body></html>`;
   }

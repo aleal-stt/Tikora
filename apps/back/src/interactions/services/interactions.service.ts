@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import type {
@@ -9,11 +9,13 @@ import type {
 import { Model, Types } from 'mongoose';
 import type { AuthenticatedUser } from '../../auth/types/auth.types';
 import { ApiException } from '../../common/exceptions/api.exception';
+import { EmailService } from '../../email/services/email.service';
 import {
   InteractionAddedEvent,
   NOTIFICATION_EVENTS,
 } from '../../notifications/events/notification-events';
 import { Ticket, TicketDocument } from '../../tickets/schemas/ticket.schema';
+import { UsersService } from '../../users/services/users.service';
 import { Interaction, InteractionDocument } from '../schemas/interaction.schema';
 
 interface ListParams {
@@ -31,16 +33,29 @@ interface SystemEventInput {
   content: string;
 }
 
+interface AiMessageInput {
+  tenantId: Types.ObjectId;
+  ticketId: Types.ObjectId;
+  content: string;
+  aiResponseId?: string;
+  /** Distingue si el mensaje fue aprobado por un agente o autónomo. */
+  autonomous: boolean;
+}
+
 const MAX_PAGE_SIZE = 100;
 
 @Injectable()
 export class InteractionsService {
+  private readonly logger = new Logger(InteractionsService.name);
+
   constructor(
     @InjectModel(Interaction.name)
     private readonly interactionModel: Model<InteractionDocument>,
     @InjectModel(Ticket.name)
     private readonly ticketModel: Model<TicketDocument>,
     private readonly events: EventEmitter2,
+    private readonly email: EmailService,
+    private readonly users: UsersService,
   ) {}
 
   // -------- API pública --------
@@ -73,10 +88,10 @@ export class InteractionsService {
       this.assertOperatesOnTicket(caller, ticket);
     }
 
+    const shouldSendByEmail = input.type === 'agente' && Boolean(input.enviarPorCorreo);
+
     const metadata: Record<string, unknown> =
-      input.type === 'agente'
-        ? { enviadoPorCorreo: input.enviarPorCorreo ?? false }
-        : { canal: 'plataforma' };
+      input.type === 'agente' ? { enviadoPorCorreo: shouldSendByEmail } : { canal: 'plataforma' };
 
     const created = await this.interactionModel.create({
       tenantId: ticket.tenantId,
@@ -86,6 +101,13 @@ export class InteractionsService {
       content: input.content,
       metadata,
     });
+
+    // El envío del correo es best-effort: si falla, la interaction ya quedó
+    // guardada y el agente puede reintentar agregando otra nota. Loggeamos
+    // pero no rompemos la respuesta HTTP.
+    if (shouldSendByEmail) {
+      await this.sendAgentReplyByEmail({ caller, ticket, content: input.content });
+    }
 
     // Resolvemos los participantes ANTES del emit para que el listener no
     // necesite tocar la colección de tickets — el productor tiene toda la
@@ -102,6 +124,39 @@ export class InteractionsService {
     } satisfies InteractionAddedEvent);
 
     return this.toResponse(created);
+  }
+
+  private async sendAgentReplyByEmail(args: {
+    caller: AuthenticatedUser;
+    ticket: TicketDocument;
+    content: string;
+  }): Promise<void> {
+    try {
+      const [requester, agent] = await Promise.all([
+        this.users.findById(args.ticket.tenantId, args.ticket.requesterId),
+        this.users.findById(args.ticket.tenantId, new Types.ObjectId(args.caller.userId)),
+      ]);
+      if (!requester) {
+        this.logger.warn(
+          `No se pudo enviar reply por correo: solicitante no encontrado ticketId=${args.ticket._id.toString()}`,
+        );
+        return;
+      }
+      await this.email.sendAgentReplyEmail({
+        to: requester.email,
+        fullName: requester.fullName,
+        ticketShortCode: args.ticket.shortCode,
+        asunto: args.ticket.asunto,
+        body: args.content,
+        agentFullName: agent?.fullName ?? 'Agente',
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Falló el envío de reply por correo ticketId=${args.ticket._id.toString()}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   /**
@@ -170,6 +225,25 @@ export class InteractionsService {
         fromEstado: input.fromEstado,
         toEstado: input.toEstado,
         extra: input.extra,
+      },
+    });
+  }
+
+  /**
+   * Inserta una interacción `type: 'ia'` con el cuerpo de la auto-respuesta.
+   * Se usa para que el contenido real del email enviado al solicitante quede
+   * visible en la conversación (no solo el system event de cierre).
+   */
+  async appendAiInteraction(input: AiMessageInput): Promise<InteractionDocument> {
+    return this.interactionModel.create({
+      tenantId: input.tenantId,
+      ticketId: input.ticketId,
+      type: 'ia',
+      authorId: null,
+      content: input.content,
+      metadata: {
+        aiResponseId: input.aiResponseId,
+        autonomous: input.autonomous,
       },
     });
   }

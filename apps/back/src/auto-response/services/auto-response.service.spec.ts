@@ -141,6 +141,7 @@ function buildHarness(
   };
   const interactions = {
     appendSystemEvent: vi.fn().mockResolvedValue({}),
+    appendAiInteraction: vi.fn().mockResolvedValue({}),
   };
   const events = { emit: vi.fn() };
   const reopenTokens = {
@@ -174,7 +175,7 @@ describe('AutoResponseService', () => {
     it('aprueba, envía correo y cierra el ticket con resolutionType=auto', async () => {
       const ticket = buildTicket();
       const ai = buildAi({ ticketId: ticket._id });
-      const { service, email, events } = buildHarness({
+      const { service, email, events, interactions } = buildHarness({
         ai,
         ticket,
         requester: { email: 'usuario@empresa.com', fullName: 'Usuario' },
@@ -188,6 +189,14 @@ describe('AutoResponseService', () => {
       expect(ticket.resolutionType).toBe('auto');
       expect(email.sendAutoResponseEmail).toHaveBeenCalledWith(
         expect.objectContaining({ to: 'usuario@empresa.com' }),
+      );
+      // El cuerpo de la respuesta IA queda visible en la conversación
+      // como interaction type='ia' antes del system event de cierre.
+      expect(interactions.appendAiInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ content: ai.content }),
+      );
+      expect(interactions.appendSystemEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ content: 'Ticket cerrado automáticamente.' }),
       );
       expect(events.emit).toHaveBeenCalledWith('AiResponseApproved', expect.any(Object));
       expect(events.emit).toHaveBeenCalledWith('AiResponseSent', expect.any(Object));

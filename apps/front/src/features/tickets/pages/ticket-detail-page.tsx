@@ -179,6 +179,7 @@ function ActionsPanel({
   closedDefinitivelyAt,
 }: ActionsPanelProps) {
   const [interactionContent, setInteractionContent] = useState('');
+  const [enviarPorCorreo, setEnviarPorCorreo] = useState(false);
   const [resolveOpen, setResolveOpen] = useState(false);
   const [resolveNota, setResolveNota] = useState('');
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -218,7 +219,22 @@ function ActionsPanel({
               value={interactionContent}
               onChange={(e) => setInteractionContent(e.target.value)}
             />
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-3">
+              {/* Solo agentes/líderes pueden disparar correo al solicitante; el
+                  back valida igual el rol con la regla de type='agente'. */}
+              {interactionType === 'agente' ? (
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    checked={enviarPorCorreo}
+                    onChange={(e) => setEnviarPorCorreo(e.target.checked)}
+                  />
+                  Enviar también por correo al solicitante
+                </label>
+              ) : (
+                <span />
+              )}
               <Button
                 size="sm"
                 disabled={!interactionContent.trim() || addInteraction.isPending}
@@ -227,9 +243,15 @@ function ActionsPanel({
                     await addInteraction.mutateAsync({
                       type: interactionType,
                       content: interactionContent,
+                      ...(interactionType === 'agente' ? { enviarPorCorreo } : {}),
                     });
                     setInteractionContent('');
-                    toast.success('Nota agregada.');
+                    setEnviarPorCorreo(false);
+                    toast.success(
+                      interactionType === 'agente' && enviarPorCorreo
+                        ? 'Nota agregada y enviada al solicitante.'
+                        : 'Nota agregada.',
+                    );
                   } catch (err) {
                     toast.error(
                       err instanceof ApiError ? err.message : 'No pudimos agregar la nota.',

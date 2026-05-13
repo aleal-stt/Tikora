@@ -310,6 +310,25 @@ export class AutoResponseService {
     ticket.resolvedAt = new Date();
     await ticket.save();
 
+    // Dos interactions en orden cronológico:
+    // 1. La respuesta IA visible (type='ia') con el cuerpo del email.
+    // 2. El system event de cierre, mensaje corto porque el contenido ya
+    //    quedó arriba.
+    await this.interactions
+      .appendAiInteraction({
+        tenantId: ticket.tenantId,
+        ticketId: ticket._id,
+        content: ai.content ?? '',
+        aiResponseId: ai._id.toString(),
+        autonomous,
+      })
+      .catch((err) =>
+        this.logger.warn(
+          `No se pudo emitir interaction IA para ticketId=${ticket._id.toString()}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        ),
+      );
     await this.interactions
       .appendSystemEvent({
         tenantId: ticket.tenantId,
@@ -322,9 +341,7 @@ export class AutoResponseService {
           approvedBy: approvedByUserId,
           autonomous,
         },
-        content: autonomous
-          ? 'Auto-respuesta enviada autónomamente al solicitante. Ticket cerrado.'
-          : 'Auto-respuesta enviada al solicitante. Ticket cerrado automáticamente.',
+        content: 'Ticket cerrado automáticamente.',
       })
       .catch((err) =>
         this.logger.warn(

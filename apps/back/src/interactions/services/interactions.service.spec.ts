@@ -40,7 +40,13 @@ interface FakeTicket {
   areaId: Types.ObjectId | null;
 }
 
-function buildHarness(ticket: FakeTicket | null) {
+interface HarnessOpts {
+  requester?: { email: string; fullName: string } | null;
+  agent?: { fullName: string } | null;
+  emailFails?: boolean;
+}
+
+function buildHarness(ticket: FakeTicket | null, opts: HarnessOpts = {}) {
   const interactionModel = {
     create: vi.fn().mockImplementation(async (data: Record<string, unknown>) => ({
       ...data,
@@ -55,20 +61,42 @@ function buildHarness(ticket: FakeTicket | null) {
   };
 
   const ticketModel = {
-    findOne: vi.fn(() => ({ exec: vi.fn().mockResolvedValue(ticket) })),
+    findOne: vi.fn(() => ({
+      exec: vi
+        .fn()
+        .mockResolvedValue(ticket ? { ...ticket, shortCode: 'TCK-1', asunto: 'Asunto' } : null),
+    })),
   };
 
   const events = {
     emit: vi.fn(),
   };
 
+  const email = {
+    sendAgentReplyEmail: opts.emailFails
+      ? vi.fn().mockRejectedValue(new Error('SMTP down'))
+      : vi.fn().mockResolvedValue({ messageId: 'msg-1' }),
+  };
+
+  const users = {
+    findById: vi.fn().mockImplementation(async (_t: Types.ObjectId, id: Types.ObjectId) => {
+      if (opts.requester && ticket && id.equals(ticket.requesterId)) {
+        return opts.requester;
+      }
+      if (opts.agent) return opts.agent;
+      return null;
+    }),
+  };
+
   const service = new InteractionsService(
     interactionModel as never,
     ticketModel as never,
     events as never,
+    email as never,
+    users as never,
   );
 
-  return { service, interactionModel, ticketModel, events };
+  return { service, interactionModel, ticketModel, events, email, users };
 }
 
 describe('InteractionsService.createForCaller', () => {
@@ -165,7 +193,7 @@ describe('InteractionsService.createForCaller', () => {
     }
   });
 
-  it('agente del área crea type=agente con metadata enviadoPorCorreo', async () => {
+  it('agente del área crea type=agente con metadata enviadoPorCorreo y dispara email', async () => {
     const ticketAreaId = new Types.ObjectId();
     const ticket: FakeTicket = {
       _id: new Types.ObjectId(),
@@ -173,7 +201,10 @@ describe('InteractionsService.createForCaller', () => {
       requesterId: new Types.ObjectId(),
       areaId: ticketAreaId,
     };
-    const { service, interactionModel } = buildHarness(ticket);
+    const { service, interactionModel, email } = buildHarness(ticket, {
+      requester: { email: 'sol@empresa.com', fullName: 'Solicitante' },
+      agent: { fullName: 'Agente X' },
+    });
 
     const result = await service.createForCaller(
       asAgenteWithArea(ticketAreaId.toString()),
@@ -187,6 +218,57 @@ describe('InteractionsService.createForCaller', () => {
         metadata: { enviadoPorCorreo: true },
       }),
     );
+    expect(email.sendAgentReplyEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'sol@empresa.com',
+        body: 'Te llamo en 5.',
+        agentFullName: 'Agente X',
+      }),
+    );
+  });
+
+  it('cuando enviarPorCorreo=false, no dispara email', async () => {
+    const ticketAreaId = new Types.ObjectId();
+    const ticket: FakeTicket = {
+      _id: new Types.ObjectId(),
+      tenantId: TENANT_ID,
+      requesterId: new Types.ObjectId(),
+      areaId: ticketAreaId,
+    };
+    const { service, email } = buildHarness(ticket, {
+      requester: { email: 'sol@empresa.com', fullName: 'Solicitante' },
+    });
+
+    await service.createForCaller(
+      asAgenteWithArea(ticketAreaId.toString()),
+      ticket._id.toString(),
+      { type: 'agente', content: 'Solo nota interna.', enviarPorCorreo: false },
+    );
+
+    expect(email.sendAgentReplyEmail).not.toHaveBeenCalled();
+  });
+
+  it('fallo del email no rompe la creación de la interaction', async () => {
+    const ticketAreaId = new Types.ObjectId();
+    const ticket: FakeTicket = {
+      _id: new Types.ObjectId(),
+      tenantId: TENANT_ID,
+      requesterId: new Types.ObjectId(),
+      areaId: ticketAreaId,
+    };
+    const { service, interactionModel } = buildHarness(ticket, {
+      requester: { email: 'sol@empresa.com', fullName: 'Solicitante' },
+      emailFails: true,
+    });
+
+    const result = await service.createForCaller(
+      asAgenteWithArea(ticketAreaId.toString()),
+      ticket._id.toString(),
+      { type: 'agente', content: 'hola', enviarPorCorreo: true },
+    );
+
+    expect(result.type).toBe('agente');
+    expect(interactionModel.create).toHaveBeenCalled();
   });
 });
 
