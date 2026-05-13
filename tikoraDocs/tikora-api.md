@@ -584,6 +584,7 @@ Todos los endpoints bajo `/admin` requieren rol `ADM`.
 | Método | Path                     | Descripción                                                                                                                          |
 | ------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
 | GET    | `/admin/metrics`         | Métricas globales del tenant.                                                                                                        |
+| GET    | `/admin/ai-metrics`      | Métricas de uso de IA del tenant: tokens, costo USD estimado, latencia, desglose por propósito/modelo/outcome y serie temporal.      |
 | GET    | `/admin/thresholds`      | Umbrales de IA configurados.                                                                                                         |
 | PATCH  | `/admin/thresholds`      | Actualizar umbrales (`UMBRAL_CONFIANZA_CLASIFICACION`, `UMBRAL_RELEVANCIA_KB`, `UMBRAL_AUTO_AUTONOMA`, `AUTO_AUTONOMA_SAMPLE_RATE`). |
 | GET    | `/admin/ai-logs`         | Logs de llamadas IA, paginado. Filtros por `purpose`, `outcome`, `model`, fecha.                                                     |
@@ -629,6 +630,55 @@ Todos los endpoints bajo `/admin` requieren rol `ADM`.
 }
 ```
 
+### 13.3 `GET /admin/ai-metrics`
+
+Agrega `ai_call_logs` por tenant en un rango de fechas y devuelve totales,
+desgloses por propósito/modelo/outcome y serie temporal por día. El costo en
+USD se calcula con la tabla de pricing del back (`apps/back/src/metrics/ai-pricing.ts`)
+y es **estimado** — no refleja descuentos por free-tier ni créditos
+negociados con el proveedor. Si un modelo no está en la tabla, `pricingKnown`
+viene en `false` y su costo se cuenta como 0.
+
+**Query:** `?from=...&to=...` (opcionales; default últimos 30 días).
+
+**Response 200:**
+
+```json
+{
+  "rangeFrom": "2026-04-13T00:00:00.000Z",
+  "rangeTo": "2026-05-13T00:00:00.000Z",
+  "totals": {
+    "calls": 28,
+    "tokens": { "input": 34233, "inputCached": 9088, "output": 3395 },
+    "costUsd": 0.0167,
+    "latency": { "avgMs": 8479.4, "p95Ms": 21625 },
+    "retries": 18
+  },
+  "byPurpose": [
+    { "purpose": "classification", "calls": 10, "tokens": { ... }, "costUsd": 0.0031, "latencyAvgMs": 7080.4 },
+    { "purpose": "auto-response", "calls": 18, "tokens": { ... }, "costUsd": 0.0136, "latencyAvgMs": 9256.6 },
+    { "purpose": "review", "calls": 0, "tokens": { ... }, "costUsd": 0, "latencyAvgMs": null }
+  ],
+  "byModel": [
+    { "modelo": "gemini-2.5-flash", "calls": 21, "tokens": { ... }, "costUsd": 0.0158, "pricingKnown": true },
+    { "modelo": "gemini-1.5-flash", "calls": 1,  "tokens": { ... }, "costUsd": 0,      "pricingKnown": false }
+  ],
+  "byOutcome": { "ok": 24, "validation_failure": 0, "api_error": 4 },
+  "timeline": [
+    { "date": "2026-05-12", "calls": 28, "tokens": { ... }, "costUsd": 0.0167 }
+  ]
+}
+```
+
+**Notas:**
+
+- `latency.p95Ms` se calcula en memoria sobre todas las latencias del rango
+  (método nearest-rank). Si el volumen del tenant crece mucho, migrar a
+  `$percentile` de Mongo 7+.
+- `timeline` no rellena días vacíos: si un día no tuvo llamadas, no aparece
+  en el array.
+- Schema Zod compartido en `@tikora/core` → `aiMetricsResponseSchema`.
+
 ---
 
 ## 14. Feedback (`/feedback`)
@@ -670,7 +720,7 @@ El feedback de respuestas IA (Fase 2) se infiere implícitamente de las acciones
 | `ai-response`   | `GET /tickets/:id/ai-response`, `PATCH /ai-responses/:id/{approve,approve-with-changes,discard}`                                                                                                                                                 |
 | `notifications` | `GET /notifications`, `GET /notifications/unread-count`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all`, `GET /notifications/stream`                                                                                           |
 | `search`        | `GET /search`                                                                                                                                                                                                                                    |
-| `admin`         | `GET /admin/metrics`, `GET/PATCH /admin/thresholds`, `GET /admin/ai-logs[/:callId]`, `GET /admin/audit-log`, `GET/PATCH /admin/sla-config`                                                                                                       |
+| `admin`         | `GET /admin/metrics`, `GET /admin/ai-metrics`, `GET/PATCH /admin/thresholds`, `GET /admin/ai-logs[/:callId]`, `GET /admin/audit-log`, `GET/PATCH /admin/sla-config`                                                                              |
 | `feedback`      | `POST/GET /tickets/:id/classification-feedback`                                                                                                                                                                                                  |
 
 **Total Fase 1:** ~45 endpoints. Fase 2 agrega los 4 de `ai-response`.

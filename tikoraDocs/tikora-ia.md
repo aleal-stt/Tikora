@@ -897,7 +897,21 @@ A nivel `debug`, se incluyen también `prompt`, `response` y `validationErrors`.
 
 ### 12.2 Métricas
 
-Se exponen vía endpoint `/api/v1/internal/metrics` (protegido por rol admin) o vía Prometheus si se integra:
+**Implementado.** Endpoint admin-only `GET /api/v1/admin/ai-metrics` (ver
+`tikora-api.md` §13.3) que devuelve agregados sobre `ai_call_logs` con:
+
+- Totales: llamadas, tokens (input / cached / output), costo USD estimado,
+  latencia (avg + p95), retries.
+- Desglose por **propósito** (`classification` / `auto-response` / `review`),
+  por **modelo** y por **outcome** (`ok` / `validation_failure` / `api_error`).
+- Serie temporal por día.
+
+El costo USD se calcula con tabla de pricing por modelo
+(`apps/back/src/metrics/ai-pricing.ts`); modelos no listados quedan con
+`pricingKnown=false` y costo 0 para que la UI los marque como "sin pricing".
+
+**Aspiracional (no implementado todavía).** Exposición Prometheus-style en
+`/internal/metrics` para scrapeo, con métricas tipo:
 
 - `tikora_ai_calls_total{purpose, model, outcome}`
 - `tikora_ai_latency_seconds{purpose, model}` (histograma)
