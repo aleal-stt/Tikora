@@ -7,6 +7,9 @@ import { AiClientService } from './services/ai-client.service';
 @Module({
   imports: [MongooseModule.forFeature([{ name: AiCallLog.name, schema: AiCallLogSchema }])],
   providers: [AiClientService, AiCallLogService],
-  exports: [AiClientService],
+  // Re-exportamos el MongooseModule de AiCallLog para que módulos consumidores
+  // (ej. MetricsModule) puedan inyectar el model directamente en read-only sin
+  // tener que registrar el schema dos veces.
+  exports: [AiClientService, MongooseModule],
 })
 export class AiClientModule {}
