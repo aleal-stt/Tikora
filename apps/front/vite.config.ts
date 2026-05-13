@@ -12,10 +12,10 @@ export default defineConfig(() => ({
     host: 'localhost',
     proxy: {
       '/api': {
-        // Puerto del back configurable por env: el `.env.example` documenta
-        // 3001 como default pero el `.env` del repo corre en 3002. Setear
-        // `BACK_PORT=3002` antes de `nx serve front` lo apunta correctamente.
-        target: `http://localhost:${process.env.BACK_PORT ?? '3001'}`,
+        // Puerto del back configurable por env. Default 3002 porque es el
+        // valor que usa el `.env` real del repo; el `.env.example` aún
+        // muestra 3001 como referencia histórica. Override con `BACK_PORT`.
+        target: `http://localhost:${process.env.BACK_PORT ?? '3002'}`,
         changeOrigin: true,
       },
     },
@@ -37,7 +37,7 @@ export default defineConfig(() => ({
     // el bundle localmente.
     proxy: {
       '/api': {
-        target: `http://localhost:${process.env.BACK_PORT ?? '3001'}`,
+        target: `http://localhost:${process.env.BACK_PORT ?? '3002'}`,
         changeOrigin: true,
       },
     },
