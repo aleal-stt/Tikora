@@ -76,7 +76,8 @@ export function ClassificationFeedbackPanel({
   );
   const [comentario, setComentario] = useState<string>(existing?.comentario ?? '');
 
-  const areasQuery = useAreas({ limit: 200 });
+  // El back capa `limit` a 100 (MAX_PAGE_SIZE).
+  const areasQuery = useAreas({ limit: 100 });
   const upsert = useUpsertClassificationFeedback();
 
   const requiresArea = veredicto === 'area_incorrecta' || veredicto === 'ambas_incorrectas';

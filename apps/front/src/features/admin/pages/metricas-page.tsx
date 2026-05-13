@@ -52,7 +52,9 @@ export function MetricasPage() {
   const role = useAuthStore((s) => s.user?.role);
   const myAreaIds = useAuthStore((s) => s.user?.areaIds ?? []);
 
-  const areasQuery = useAreas({ limit: 200 });
+  // El back capa `limit` a 100 (MAX_PAGE_SIZE). Si en el futuro hay más
+  // áreas que eso, paginar; por ahora un solo fetch alcanza.
+  const areasQuery = useAreas({ limit: 100 });
 
   const visibleAreas = useMemo(() => {
     const all = areasQuery.data?.items ?? [];
