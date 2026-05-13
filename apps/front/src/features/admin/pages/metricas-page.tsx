@@ -18,6 +18,7 @@ import { Skeleton } from '../../../components/ui/skeleton';
 import { useAuthStore } from '../../../stores/auth.store';
 import { useAreas } from '../api/use-areas';
 import { useAreaMetrics } from '../api/use-metrics';
+import { AiMetricsSection } from '../components/ai-metrics-section';
 
 const RANGE_OPTIONS = [
   { value: '7', label: 'Últimos 7 días' },
@@ -144,6 +145,10 @@ export function MetricasPage() {
           data={metricsQuery.data}
         />
       )}
+
+      {/* Métricas de IA — sólo admin. El back rechaza si no es admin, pero
+          además evitamos montarlo para no disparar la query con un 403. */}
+      {role === 'admin' && <AiMetricsSection range={range} />}
     </div>
   );
 }
