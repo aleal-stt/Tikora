@@ -1,3 +1,4 @@
+export * from './lib/ai-metrics';
 export * from './lib/ai-responses';
 export * from './lib/areas';
 export * from './lib/attachments';
