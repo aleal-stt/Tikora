@@ -4,6 +4,7 @@ import { InteractionsModule } from '../interactions/interactions.module';
 import { TicketsModule } from '../tickets/tickets.module';
 import { UsersModule } from '../users/users.module';
 import { McpController } from './controllers/mcp.controller';
+import { MeMcpKeysController } from './controllers/me-mcp-keys.controller';
 import { McpApiKey, McpApiKeySchema } from './schemas/mcp-key.schema';
 import { McpAuthService } from './services/mcp-auth.service';
 import { McpKeyService } from './services/mcp-key.service';
@@ -26,7 +27,7 @@ import { McpServerService } from './services/mcp-server.service';
     InteractionsModule,
     UsersModule,
   ],
-  controllers: [McpController],
+  controllers: [McpController, MeMcpKeysController],
   providers: [McpKeyService, McpAuthService, McpServerService],
   exports: [McpKeyService],
 })
