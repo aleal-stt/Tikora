@@ -56,4 +56,25 @@ describe('MeMcpKeysController', () => {
     await expect(controller.revoke(asEmpleado(), 'someId')).resolves.toBeUndefined();
     expect(service.revoke).toHaveBeenCalledWith(expect.anything(), 'someId');
   });
+
+  it('regenerate delega al service y devuelve la respuesta', async () => {
+    const response = {
+      key: {
+        id: 'b',
+        name: 'Mi WhatsApp',
+        prefix: 'tk_mcp_zzzzz',
+        lastUsedAt: null,
+        createdAt: '2026-05-25T00:00:00.000Z',
+      },
+      secret: 'tk_mcp_zzzzz0000000000000000',
+    };
+    const service = {
+      regenerate: vi.fn().mockResolvedValue(response),
+    } as unknown as McpKeyService;
+    const controller = new MeMcpKeysController(service);
+
+    const result = await controller.regenerate(asEmpleado(), 'keyId');
+    expect(result).toBe(response);
+    expect(service.regenerate).toHaveBeenCalledWith(expect.anything(), 'keyId');
+  });
 });

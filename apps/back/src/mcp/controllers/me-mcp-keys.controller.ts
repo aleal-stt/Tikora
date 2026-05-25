@@ -42,4 +42,18 @@ export class MeMcpKeysController {
   async revoke(@CurrentUser() caller: AuthenticatedUser, @Param('id') id: string): Promise<void> {
     await this.keys.revoke(caller, id);
   }
+
+  /**
+   * Revoca la key indicada y genera una nueva con el mismo `name`. Pensado
+   * para el caso "perdí el secreto": conserva la etiqueta para que el
+   * usuario reconozca la entrada en la lista.
+   */
+  @Post(':id/regenerate')
+  @HttpCode(HttpStatus.CREATED)
+  async regenerate(
+    @CurrentUser() caller: AuthenticatedUser,
+    @Param('id') id: string,
+  ): Promise<CreateMcpKeyResponse> {
+    return this.keys.regenerate(caller, id);
+  }
 }

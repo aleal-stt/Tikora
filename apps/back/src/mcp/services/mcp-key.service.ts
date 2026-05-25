@@ -144,6 +144,45 @@ export class McpKeyService {
     this.logger.log(`Key MCP revocada keyId=${keyId} userId=${caller.userId}`);
   }
 
+  /**
+   * Revoca una key existente y crea una nueva con el mismo `name`. Útil
+   * cuando el usuario perdió el secreto: en vez de pedirle que invente otro
+   * nombre, conserva la etiqueta para que se reconozca igual en la lista.
+   *
+   * Devuelve `{ key, secret }` con el mismo shape que `generate` — el nuevo
+   * secreto solo viaja en esta respuesta, no se vuelve a recuperar.
+   */
+  async regenerate(
+    caller: AuthenticatedUser,
+    keyId: string,
+  ): Promise<{ key: McpKey; secret: string }> {
+    if (!Types.ObjectId.isValid(keyId)) {
+      throw new ApiException(HttpStatus.NOT_FOUND, 'MCP_KEY_NOT_FOUND', 'Key no encontrada.');
+    }
+    const doc = await this.keyModel.findOne({
+      _id: new Types.ObjectId(keyId),
+      tenantId: new Types.ObjectId(caller.tenantId),
+      userId: new Types.ObjectId(caller.userId),
+    });
+    if (!doc) {
+      throw new ApiException(HttpStatus.NOT_FOUND, 'MCP_KEY_NOT_FOUND', 'Key no encontrada.');
+    }
+    if (doc.revokedAt) {
+      throw new ApiException(
+        HttpStatus.CONFLICT,
+        'MCP_KEY_ALREADY_REVOKED',
+        'La key ya estaba revocada. Generá una nueva en su lugar.',
+      );
+    }
+    const originalName = doc.name;
+    doc.revokedAt = new Date();
+    await doc.save();
+    this.logger.log(
+      `Key MCP regenerada: revocada keyId=${keyId} userId=${caller.userId}, creando reemplazo…`,
+    );
+    return this.generate(caller, { name: originalName });
+  }
+
   private toPublic(doc: McpApiKeyDocument): McpKey {
     return {
       id: doc._id.toString(),

@@ -109,6 +109,42 @@ describe('McpKeyService.generate', () => {
   });
 });
 
+describe('McpKeyService.regenerate', () => {
+  it('revoca la actual y crea una nueva con el mismo name', async () => {
+    const doc = buildKeyDoc({ name: 'Mi WhatsApp' });
+    const { service } = buildHarness({ existingDoc: doc });
+    const result = await service.regenerate(asEmpleado(), doc._id.toString());
+
+    expect(doc.revokedAt).toBeInstanceOf(Date);
+    expect(result.key.name).toBe('Mi WhatsApp');
+    expect(result.secret.startsWith('tk_mcp_')).toBe(true);
+  });
+
+  it('responde 404 cuando el id no es ObjectId', async () => {
+    const { service } = buildHarness();
+    await expect(service.regenerate(asEmpleado(), 'no-es-objectid')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'MCP_KEY_NOT_FOUND', statusCode: 404 }),
+    });
+  });
+
+  it('responde 404 cuando la key no existe', async () => {
+    const { service } = buildHarness({ existingDoc: null });
+    await expect(
+      service.regenerate(asEmpleado(), new Types.ObjectId().toString()),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'MCP_KEY_NOT_FOUND', statusCode: 404 }),
+    });
+  });
+
+  it('responde 409 si la key ya estaba revocada', async () => {
+    const doc = buildKeyDoc({ revokedAt: new Date('2026-05-20') });
+    const { service } = buildHarness({ existingDoc: doc });
+    await expect(service.regenerate(asEmpleado(), doc._id.toString())).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'MCP_KEY_ALREADY_REVOKED', statusCode: 409 }),
+    });
+  });
+});
+
 describe('McpKeyService.revoke', () => {
   it('marca revokedAt cuando la key existe y pertenece al usuario', async () => {
     const doc = buildKeyDoc();
