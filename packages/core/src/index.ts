@@ -7,6 +7,8 @@ export * from './lib/classification';
 export * from './lib/feedback';
 export * from './lib/interactions';
 export * from './lib/kb';
+export * from './lib/mcp-keys';
+export * from './lib/mcp-tools';
 export * from './lib/metrics';
 export * from './lib/notifications';
 export * from './lib/tickets';
