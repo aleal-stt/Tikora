@@ -1,6 +1,6 @@
 # Tikora — Integración MCP (WhatsApp via Claude)
 
-> Plan de implementación de un servidor MCP para que los empleados puedan crear y consultar tickets de Tikora a través de Claude en WhatsApp. Documento de diseño previo a codear; cuando la implementación arranque, se actualiza con realidad del código y se agregan referencias a archivos concretos.
+> Diseño y estado actual del servidor MCP que permite operar tickets de Tikora desde Claude en WhatsApp. La v1 (Fases 1 y 2 del §5) está **implementada, smoke-tested y pusheada a `main`**. Este doc refleja lo que hay en el código, no el plan original; las decisiones se mantienen para que el reader entienda el porqué de la arquitectura.
 
 ---
 
@@ -56,7 +56,9 @@ Se acepta como limitación que **el flujo de notificación del agente al emplead
 
 ### 4.1 Ubicación del MCP server
 
-**Decisión:** el MCP server vive **dentro del back de NestJS** como módulo nuevo `apps/back/src/mcp/`, expuesto en un endpoint HTTP del mismo proceso (`POST /mcp` con transport HTTP streaming del SDK MCP). No se crea una app aparte en `apps/`.
+**Decisión:** el MCP server vive **dentro del back de NestJS** como módulo nuevo `apps/back/src/mcp/`, expuesto en un endpoint HTTP del mismo proceso con el `StreamableHTTPServerTransport` del SDK MCP. La URL real es `POST /api/v1/mcp` — el `setGlobalPrefix('api/v1')` del back aplica también al controller MCP, así que el usuario configura esa URL completa como connector en claude.ai. No se crea una app aparte en `apps/`.
+
+**Modo stateless.** El transport se instancia con `sessionIdGenerator: undefined` y cada request HTTP crea su propio par `McpServer` + `transport`. Las tools se registran en closure sobre el `AuthenticatedUser` que el `McpAuthGuard` resolvió desde la API key del header. Sin sesión persistente: no hay estado compartido entre requests ni entre usuarios.
 
 **Por qué:** todo el dominio que el MCP necesita (users, tickets, classification queue, tenants) ya vive en el back. Levantar otra app Nx implicaría duplicar bootstrap, conexiones a Mongo y Redis, o exponer un cliente HTTP interno — overhead sin retorno para v1. Cuando crezca a punto de necesitar escalado independiente o procesos separados, se extrae con la misma interfaz pública.
 
@@ -64,22 +66,30 @@ Se acepta como limitación que **el flujo de notificación del agente al emplead
 
 ```
 apps/back/src/mcp/
-├── mcp.module.ts                # NestModule, importa UsersModule, TicketsModule, etc.
-├── mcp.controller.ts            # POST /mcp — transport HTTP del SDK
+├── mcp.module.ts                       # NestModule, importa Tickets/Interactions/Users
+├── mcp.constants.ts                    # MCP_KEY_PREFIX, longitudes, etc.
+├── controllers/
+│   ├── mcp.controller.ts               # POST /api/v1/mcp — transport HTTP del SDK
+│   └── me-mcp-keys.controller.ts       # REST de gestión de keys (ver §4.6)
 ├── services/
-│   ├── mcp-server.service.ts    # Construye el McpServer y registra las tools
-│   ├── mcp-key.service.ts       # Genera, hashea, valida y revoca API keys
-│   └── mcp-auth.service.ts      # Resuelve key → AuthenticatedUser
+│   ├── mcp-server.service.ts           # Fábrica de McpServer + registro de tools
+│   ├── mcp-key.service.ts              # Genera, hashea, valida, revoca, regenera
+│   └── mcp-auth.service.ts             # Resuelve key → AuthenticatedUser
 ├── tools/
-│   ├── create-ticket.tool.ts    # Una tool por archivo
-│   ├── list-my-tickets.tool.ts
-│   ├── get-ticket.tool.ts
-│   └── append-message.tool.ts
+│   ├── crear-ticket.tool.ts            # Una tool por archivo, nombres en español
+│   ├── listar-mis-tickets.tool.ts
+│   ├── obtener-ticket.tool.ts
+│   ├── agregar-mensaje-a-ticket.tool.ts
+│   └── tool-helpers.ts                 # toolError() para mapear ApiException a CallToolResult
 ├── schemas/
-│   └── mcp-key.schema.ts        # Mongoose schema de McpApiKey
+│   └── mcp-key.schema.ts               # Mongoose schema de McpApiKey
+├── dto/
+│   └── create-mcp-key.dto.ts           # createZodDto(createMcpKeySchema) para nestjs-zod
 └── guards/
-    └── mcp-auth.guard.ts        # Guard que valida la API key en el header MCP
+    └── mcp-auth.guard.ts               # Guard que valida la API key en el header MCP
 ```
+
+**Schemas Zod en `@tikora/core`** viven flat en `packages/core/src/lib/`, no en una subcarpeta `mcp/` — coherente con la convención existente del paquete (`tickets.ts`, `auth.ts`, etc.). Los archivos son `mcp-keys.ts` (REST de gestión) y `mcp-tools.ts` (I/O de las 4 tools).
 
 ### 4.3 Modelo de datos
 
@@ -106,7 +116,7 @@ export const McpApiKeySchema = z.object({
 
 ### 4.4 Auth MCP
 
-Formato de la API key: `tk_mcp_<24 chars base62>` (total 31 chars). El secreto completo se muestra **una sola vez** al generarla; después solo queda el prefix visible y el hash bcrypt.
+Formato de la API key: `tk_mcp_<24 chars base62>` (total 31 chars). El cuerpo aleatorio se genera con `crypto.randomBytes` + rejection sampling sobre los 62 chars del alfabeto base62 (descarta bytes ≥ 248 para que cada char sea equiprobable). El secreto completo se muestra **una sola vez** al generarla; después solo queda el prefix visible (`tk_mcp_xxxxx`, 12 chars = prefijo fijo + 5 chars random) y el hash bcrypt.
 
 Flujo de validación en cada request MCP:
 
@@ -120,89 +130,109 @@ El hashing se hace con `bcryptjs`, la misma librería que ya usa el back para pa
 
 ### 4.5 Tools v1 — especificación
 
-Cada tool recibe el contexto resuelto del auth (`tenantId`, `userId`, `role`) y delega a services existentes. No hace queries directas a Mongo.
+Las tools usan **nombres y campos en español**, coherente con el resto del dominio Tikora (`asunto`, `cuerpo`, `estado`, `prioridad`). Claude infiere bien tanto en inglés como en español, y mantener una sola convención evita mapeos entre la capa MCP y los services del back. Cada tool recibe el contexto resuelto del auth (`tenantId`, `userId`, `role`) por closure y delega a services existentes — no hace queries directas a Mongo.
 
-**`create_ticket`**
+Schemas de I/O viven en `@tikora/core/src/lib/mcp-tools.ts` con Zod, y el SDK MCP los expone como JSON Schema a Claude usando `.shape` del schema.
+
+**`crear_ticket`**
 
 ```yaml
 input:
-  title: string (5..120)
-  description: string (10..5000)
-  areaId: optional string (ObjectId) # si Claude lo infiere; si no, queda al pipeline de clasificación
+  asunto: string (5..120, trim)
+  cuerpo: string (10..5000, trim)
 output:
   ticketId: string
-  status: 'recibido'
-  message: string # confirmación humana para Claude
+  shortCode: string
+  estado: EstadoTicket
+  mensaje: string # confirmación humana
 behavior:
-  - Llama a TicketsService.create({ tenantId, requesterId: userId, title, description, areaId? })
-  - Eso encola job en ClassificationQueueService (flow idéntico a tickets desde UI)
-  - No espera al pipeline IA; devuelve apenas el ticket queda persistido
+  - Llama a TicketsService.create(caller, { asunto, cuerpo })
+  - El ticket entra al pipeline de clasificación IA (idéntico a creación desde UI)
+  - No espera al pipeline; devuelve apenas el ticket queda persistido
+nota:
+  - No acepta `areaId`. TicketsService.create no lo permite — el área la
+    asigna el ClassificationProcessor a partir del cuerpo. Si se quiere
+    permitir override desde Claude, hay que extender create primero.
 ```
 
-**`list_my_tickets`**
+**`listar_mis_tickets`**
 
 ```yaml
 input:
-  status: optional enum (recibido|escalado|en_progreso|sugerida|cerrado|requiere_revision_clasificacion)
-  limit: optional int (1..20, default 10)
+  estado: optional EstadoTicket # recibido|clasificado|requiere_revision_clasificacion|escalado|en_progreso|cerrado|reabierto|cancelado
+  limite: optional int (1..20, default 10)
 output:
-  tickets: array of { ticketId, title, status, createdAt, lastAgentReplyAt? }
+  tickets: array of { ticketId, shortCode, asunto, estado, prioridad, createdAt }
 behavior:
-  - Filtro fijo por tenantId + requesterId = userId
-  - Orden descendente por createdAt
-  - Cap duro en 20 para evitar respuestas larguísimas en Claude
+  - Llama a TicketsService.listMine(caller, { limit: 100 }) — el cap del back es MAX_PAGE_SIZE=100.
+  - Filtra por `estado` en memoria sobre esos 100 resultados, después corta a `limite`.
+  - Orden descendente por _id (que sigue createdAt).
+nota:
+  - El filtro `estado` no es server-side (TicketsService.listMine no lo soporta).
+    Si el usuario tiene >100 tickets de un estado, los más viejos no aparecerán.
+    Para usuarios con backlog grande hay que extender listMine con filtro server-side.
 ```
 
-**`get_ticket`**
+**`obtener_ticket`**
+
+```yaml
+input:
+  ticketId: string (ObjectId, regex /^[0-9a-fA-F]{24}$/)
+output:
+  ticket: { ticketId, shortCode, asunto, cuerpo, estado, prioridad, areaId, createdAt }
+  ultimaRespuestaAgente: nullable { contenido, agenteNombre, enviadaEn }
+  historial: array of { tipo: 'mensaje'|'cambio_estado', contenido, fecha }  # últimos 10 eventos
+behavior:
+  - Llama a TicketsService.getByIdForCaller (que ya valida ownership y tira 404
+    si el ticket no es del caller o no es del tenant).
+  - Llama a InteractionsService.listForTicket para construir historial y detectar
+    la última interaction de tipo `agente`.
+nota:
+  - `agenteNombre` es siempre el string genérico "Agente" en v1. Para resolver
+    el nombre real hay que inyectar UsersService.findById en el closure de la
+    tool — se difiere a v2 para no acoplar el módulo MCP con UsersService.
+```
+
+**`agregar_mensaje_a_ticket`**
 
 ```yaml
 input:
   ticketId: string (ObjectId)
+  texto: string (1..2000, trim)
 output:
-  ticket: { ticketId, title, description, status, areaId, createdAt }
-  lastAgentResponse: optional { content, agentName, sentAt }
-  history: array of { kind: 'message'|'status_change', content, at }  # últimos 10 eventos
+  ok: true (literal)
+  mensaje: string
 behavior:
-  - Verifica que ticket.tenantId === auth.tenantId Y ticket.requesterId === auth.userId
-  - Si no, devuelve error específico "ticket no encontrado o sin acceso"
-  - Carga interactions del ticket (modulo interactions existente)
+  - Llama a TicketsService.getByIdForCaller para validar ownership + estado actual.
+  - Si estado ∈ {cerrado, cancelado}, devuelve isError con mensaje específico
+    (sin hacer el append).
+  - Llama a InteractionsService.createForCaller(caller, ticketId, { type: 'usuario', content: texto }).
+  - No re-clasifica; si se necesita escalamiento, queda para el agente desde la UI.
 ```
 
-**`append_message_to_ticket`**
-
-```yaml
-input:
-  ticketId: string (ObjectId)
-  text: string (1..2000)
-output:
-  ok: boolean
-  message: string
-behavior:
-  - Misma verificación de ownership que get_ticket
-  - Solo permite append si ticket.status !== 'cerrado'
-  - Crea una Interaction de tipo 'requester_message'
-  - No re-clasifica (la clasificación inicial ya pasó); si se necesita escalamiento, queda para el agente
-```
-
-Schemas de input/output de cada tool van en `@tikora/core/src/mcp/` con Zod, y el SDK MCP los expone como JSON Schema a Claude.
+Errores de los services (ApiException del back) se mapean a `CallToolResult { isError: true, content: [...] }` por `tool-helpers.ts:toolError()`, que extrae el `message` en español y lo pone en el content de texto que Claude le muestra al usuario.
 
 ### 4.6 UI de gestión de keys
 
-Pantalla nueva en el front: **`/profile/mcp-keys`** (ruta privada, accesible por cualquier rol logueado).
+Pantalla en `apps/front/src/features/mcp-keys/`, ruta privada **`/perfil/mcp-keys`** accesible por cualquier rol logueado (item "Claves MCP" en el sidebar del `AppShell`, ícono llave). `/perfil` redirige a `/perfil/mcp-keys` porque hoy es la única sub-página de perfil.
 
 Componentes:
 
-- `McpKeysPage` — listado de keys del user (nombre, prefix, `lastUsedAt`, fecha de creación, botón "revocar").
-- `CreateMcpKeyDialog` — input de nombre, botón "Generar", al confirmar muestra el secreto completo **una sola vez** con botón "copiar" y advertencia "guardalo ahora, no se vuelve a mostrar".
-- `RevokeMcpKeyDialog` — confirmación destructiva.
+- `McpKeysPage` — listado de keys activas con nombre, prefix, `lastUsedAt`, fecha de creación. Por item, dos botones: **Regenerar** y **Revocar**.
+- `CreateMcpKeyDialog` — input de nombre + botón "Generar". Al confirmar, el dialog cambia al panel reusable `RevealedSecretPanel` que muestra el secret **una sola vez** con copy-to-clipboard y advertencia ámbar destacada.
+- `RegenerateMcpKeyDialog` — confirmación destructiva (muestra el nombre + prefijo de la key actual) → al confirmar, llama a `POST /me/mcp-keys/:id/regenerate` y muestra el nuevo secret con el mismo `RevealedSecretPanel`.
+- Reusa `ConfirmDialog` (de `features/admin/components/`) para la revocación simple.
 
-Endpoints HTTP nuevos (autenticados con JWT, no con la propia key MCP):
+Endpoints HTTP (autenticados con JWT, no con la propia key MCP):
 
-- `GET /api/v1/me/mcp-keys` → lista del user actual
-- `POST /api/v1/me/mcp-keys` → genera nueva, retorna el secreto completo en esta única respuesta
-- `DELETE /api/v1/me/mcp-keys/:id` → marca `revokedAt` (no borra el registro, para auditoría)
+- `GET /api/v1/me/mcp-keys` → lista de keys activas del user actual.
+- `POST /api/v1/me/mcp-keys` → genera nueva, retorna `{ key, secret }` (secret una sola vez).
+- `DELETE /api/v1/me/mcp-keys/:id` → marca `revokedAt` (soft-delete; el registro queda para auditoría).
+- `POST /api/v1/me/mcp-keys/:id/regenerate` → revoca la actual + crea otra con el mismo `name`, devuelve `{ key, secret }` con el shape de creación.
 
-Límite suave: máximo **5 keys activas por user**, configurable por env (`MCP_MAX_ACTIVE_KEYS_PER_USER=5`).
+El endpoint `regenerate` no estaba en el plan original. Se agregó durante el smoke front porque el usuario pidió "un botón para copiar la key cuando sea necesario", y el secret no se puede recuperar (hash-only). Regenerar manteniendo el `name` preserva la identificación en la lista sin debilitar la seguridad: la key vieja queda inválida de inmediato y solo el nuevo secret viaja una vez.
+
+Límite suave: máximo **5 keys activas por user**, configurable por env (`MCP_MAX_ACTIVE_KEYS_PER_USER=5`). El cap se chequea en `generate` (no en `regenerate` porque revoca antes de crear → no acumula).
 
 ### 4.7 Logging y observabilidad
 
@@ -215,41 +245,47 @@ Límite suave: máximo **5 keys activas por user**, configurable por env (`MCP_M
 
 ## 5. Plan de implementación en fases
 
-### Fase 1 — Backend mínimo viable (~2 días de trabajo)
+### Fase 1 — Backend mínimo viable ✅ COMPLETADA (2026-05-25)
 
-1. Instalar `@modelcontextprotocol/sdk` en el back.
-2. Crear schemas Zod en `@tikora/core/src/mcp/` (key + cada tool I/O).
-3. Mongoose schema `McpApiKey` + repository.
-4. `McpKeyService` (generar, hashear, validar, listar, revocar).
-5. `McpAuthService` + `McpAuthGuard`.
-6. `McpServerService` con las 4 tools registradas, delegando a services existentes.
-7. `McpController` con endpoint `POST /mcp` y transport HTTP del SDK.
-8. Endpoints REST `/api/v1/me/mcp-keys` (GET/POST/DELETE).
-9. Variables de entorno: `MCP_ENABLED`, `MCP_MAX_ACTIVE_KEYS_PER_USER`, `MCP_KEY_PREFIX` (default `tk_mcp_`).
+Commits en `main`: `b1e935c`, `8843348`, `98ef648`, `76def6b`, `b588954`.
 
-### Fase 2 — Frontend (~1 día)
+1. ✅ Instalar `@modelcontextprotocol/sdk@1.29.0` (pin exacto).
+2. ✅ Schemas Zod en `@tikora/core/src/lib/mcp-keys.ts` + `mcp-tools.ts` (flat, no subcarpeta).
+3. ✅ Mongoose schema `McpApiKey` con índices `(tenantId, userId, revokedAt)` y `prefix`.
+4. ✅ `McpKeyService` (generar/hashear/listar/revocar, + `regenerate` agregado después — ver §4.6).
+5. ✅ `McpAuthService` + `McpAuthGuard`.
+6. ✅ `McpServerService` con las 4 tools registradas en español, delegando a services existentes.
+7. ✅ `McpController` con endpoint `POST /api/v1/mcp` y `StreamableHTTPServerTransport` stateless.
+8. ✅ Endpoints REST `/api/v1/me/mcp-keys` (GET/POST/DELETE/regenerate).
+9. ✅ Variables de entorno: `MCP_ENABLED`, `MCP_MAX_ACTIVE_KEYS_PER_USER`. `MCP_KEY_PREFIX` no se hizo configurable; vive en `mcp.constants.ts`.
 
-1. Ruta `/profile/mcp-keys` con guard de login.
-2. Hooks `useMcpKeys`, `useCreateMcpKey`, `useRevokeMcpKey` (React Query).
-3. Componentes `McpKeysPage`, `CreateMcpKeyDialog` (con flow del secreto de un solo uso), `RevokeMcpKeyDialog`.
-4. Link a la página desde el menú del user (avatar dropdown).
+Smoke curl validado: `initialize`, `tools/list` (las 4 tools con JSON Schema correcto), `tools/call listar_mis_tickets`, auth ok / inválida / revocada → todos los caminos OK.
 
-### Fase 3 — Tests y validación (~1 día)
+### Fase 2 — Frontend ✅ COMPLETADA (2026-05-25)
 
-1. Unit tests del `McpKeyService` (generación, hashing, prefix collision).
-2. Unit tests de cada tool (con services mockeados): casos felices, ownership cross-tenant, ticket no propio.
-3. Integration test del flow completo: crear key → request MCP simulado → tool ejecuta → ticket persistido.
-4. Property test del input de `create_ticket` (longitudes, caracteres, áreas inválidas) con `fast-check`.
-5. Smoke manual: conectar el connector real en claude.ai, hacer las 4 operaciones desde WhatsApp.
+Commits en `main`: `d13101c` (api + hooks), `15b4d8f` (página + dialogs + sidebar), más `e01f1e5` (back regenerate) y `0336cf7` (front regenerate).
 
-### Fase 4 — Docs y release (~0.5 días)
+1. ✅ Ruta `/perfil/mcp-keys` bajo `RequireAuth` (cualquier rol).
+2. ✅ Hooks `useMcpKeys`, `useCreateMcpKey`, `useRevokeMcpKey`, `useRegenerateMcpKey`.
+3. ✅ Componentes `McpKeysPage`, `CreateMcpKeyDialog`, `RegenerateMcpKeyDialog`, `RevealedSecretPanel`. Reusa `ConfirmDialog` para revoke.
+4. ✅ Item "Claves MCP" agregado al sidebar del `AppShell` (no dropdown — el front no tiene avatar dropdown).
 
-1. Actualizar este documento con paths y comportamientos reales.
-2. Bloque en `tikora-api.md` para los nuevos endpoints REST.
-3. Sección "MCP" en `tikora-setup.md` con instrucciones para configurar el connector en claude.ai.
-4. Entrada nueva en `decisiones-tecnicas.md` resumiendo §2 de este doc.
+Smoke front en browser validado por el usuario: crear/copy/revocar/regenerar funcionan visualmente.
 
-**Estimación total:** ~4.5 días de trabajo concentrado. No entra en el muestreo del 2026-06-01; arranca después.
+### Fase 3 — Tests y validación ⏳ PARCIAL
+
+1. ✅ Unit tests del `McpKeyService` (generación, hashing, prefix length, cap, 404/409 de revoke y regenerate).
+2. ✅ Unit tests de los handlers de cada tool con services mockeados (`tools.spec.ts`): delegación, filtro estado in-memory, mapeo de historial, bloqueo de tickets cerrados, mapeo de `ApiException` a `isError`.
+3. ❌ Integration test del flow completo (crear key → request MCP real → tool ejecuta contra Mongo). Pendiente.
+4. ❌ Property test del input de `crear_ticket` con `fast-check`. Pendiente (los tests actuales son ejemplos puntuales).
+5. ❌ Smoke con el connector real en claude.ai → WhatsApp. Pendiente — bloquea cierre de v1 desde la perspectiva del usuario final.
+
+### Fase 4 — Docs y release ⏳ EN CURSO
+
+1. ✅ Este documento actualizado con paths, decisiones y comportamientos reales (estás leyendo el resultado).
+2. ❌ Bloque en `tikora-api.md` para los nuevos endpoints REST `/me/mcp-keys` + `POST /mcp`. Pendiente.
+3. ❌ Sección "MCP" en `tikora-setup.md` con pasos para configurar el connector en claude.ai. Pendiente.
+4. ❌ Entrada nueva en `decisiones-tecnicas.md` resumiendo §2 de este doc. Pendiente.
 
 ---
 
@@ -268,22 +304,23 @@ Se enumeran para que el siguiente plan los recoja, no para implementarlos ahora:
 
 ## 7. Riesgos y decisiones diferidas
 
-| Riesgo / pregunta abierta                                                               | Mitigación / próxima acción                                                                                                        |
-| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Que el contrato MCP de Anthropic cambie antes de release                                | Pinear versión del SDK en `package.json`; cuando arranquemos, validar release notes del SDK                                        |
-| Que el connector MCP exija un IdP OAuth y no permita API key plain                      | Verificar en docs de Anthropic en el momento de codear; si es así, escalar fase 1 con un mini-IdP                                  |
-| Que Claude no invoque las tools de forma consistente (decida no llamar `create_ticket`) | Iterar el `description` de cada tool; las descripciones bien escritas son lo que hace que Claude las elija                         |
-| Adopción real: que los empleados no quieran usar Claude para crear tickets              | Muestrear con 2-3 empleados después del piloto interno; si la adopción es baja, no escalar y volver a evaluar Business API         |
-| Posibilidad futura de querer push real del agente                                       | Migrar a opción Business API (Twilio o Meta Cloud) cuando haya presupuesto. El MCP server queda como canal alternativo o se retira |
+| Riesgo / pregunta abierta                                                              | Estado / mitigación                                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Que el contrato MCP de Anthropic cambie y rompa el server                              | SDK pineado en `1.29.0` (exact). Cuando se quiera actualizar, revisar release notes y volver a correr smoke curl + claude.ai.                                                                        |
+| Que el connector de claude.ai exija un IdP OAuth y rechace API key plain               | Smoke curl contra el endpoint demostró que el Bearer token funciona end-to-end con el SDK. **Falta validar contra claude.ai real**: si lo rechaza, hay que envolver el endpoint con un mini-IdP MCP. |
+| Que Claude no invoque las tools de forma consistente (decida no llamar `crear_ticket`) | Las `description` están escritas en español apuntando a casos concretos. Solo se valida con el smoke real desde WhatsApp; si hay problemas iterar las descriptions.                                  |
+| Adopción real: que los empleados no quieran usar Claude para crear tickets             | Muestrear con 2-3 empleados después del piloto interno; si la adopción es baja, no escalar y volver a evaluar Business API.                                                                          |
+| Posibilidad futura de querer push real del agente                                      | Migrar a opción Business API (Twilio o Meta Cloud) cuando haya presupuesto. El MCP server queda como canal alternativo o se retira.                                                                  |
 
 ---
 
 ## 8. Definición de "done" para la v1
 
-- [ ] Un empleado puede entrar a `/profile/mcp-keys` en la UI, generar una key, copiar el secreto, configurar el connector en claude.ai y crear un ticket por WhatsApp.
-- [ ] El ticket creado por MCP es indistinguible (en Mongo, en la UI del agente, en el pipeline IA) de un ticket creado por la UI.
-- [ ] El empleado puede listar sus tickets, ver detalle y agregar comentarios desde Claude.
-- [ ] La key se puede revocar y queda inválida inmediatamente.
-- [ ] Un empleado no puede acceder a tickets de otro empleado, ni a tickets de otro tenant, aunque conozca el `ticketId`.
-- [ ] Tests pasan en CI; no hay errores de tipos.
-- [ ] Documento actualizado con paths y comandos reales.
+- [x] Un empleado puede entrar a `/perfil/mcp-keys` en la UI, generar una key y copiar el secreto. **Configurar el connector en claude.ai y crear un ticket por WhatsApp queda pendiente de smoke real con el servicio externo.**
+- [x] Un ticket creado vía MCP entra al mismo pipeline IA y queda indistinguible en Mongo de uno creado por la UI (validado por construcción: la tool `crear_ticket` delega a `TicketsService.create`).
+- [x] El empleado puede listar sus tickets, ver detalle y agregar comentarios desde la tool (validado por unit tests; smoke real desde Claude pendiente).
+- [x] La key se puede revocar y queda inválida inmediatamente (validado por smoke curl).
+- [x] Un empleado no puede acceder a tickets de otro empleado ni de otro tenant — `TicketsService.getByIdForCaller` aplica los mismos filtros que la UI.
+- [x] Tests pasan localmente; no hay errores de tipos (`pnpm exec nx test back` + `nx build back` + `nx build front` verdes).
+- [x] Este documento actualizado con paths y comportamientos reales.
+- [ ] **Smoke real claude.ai + WhatsApp** — único pendiente bloqueante para declarar v1 cerrada de cara al usuario final.
