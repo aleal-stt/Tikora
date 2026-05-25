@@ -8,6 +8,7 @@ import { MetricasPage } from '../features/admin/pages/metricas-page';
 import { SlasPage } from '../features/admin/pages/slas-page';
 import { UsuariosPage } from '../features/admin/pages/usuarios-page';
 import { LoginPage } from '../features/auth/pages/login-page';
+import { McpKeysPage } from '../features/mcp-keys/pages/mcp-keys-page';
 import { BandejaPage } from '../features/tickets/pages/bandeja-page';
 import { MisTicketsPage } from '../features/tickets/pages/mis-tickets-page';
 import { NuevoTicketPage } from '../features/tickets/pages/nuevo-ticket-page';
@@ -69,7 +70,8 @@ export const router = createBrowserRouter([
           { path: 'slas', element: <SlasPage /> },
         ],
       },
-      { path: '/perfil', element: <Navigate to="/mis-tickets" replace /> },
+      { path: '/perfil', element: <Navigate to="/perfil/mcp-keys" replace /> },
+      { path: '/perfil/mcp-keys', element: <McpKeysPage /> },
     ],
   },
   { path: '*', element: <Navigate to="/" replace /> },

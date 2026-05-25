@@ -2,6 +2,7 @@ import {
   ArrowRightOnRectangleIcon,
   Cog6ToothIcon,
   InboxIcon,
+  KeyIcon,
   UserGroupIcon,
 } from '@heroicons/react/24/outline';
 import { useMutation } from '@tanstack/react-query';
@@ -80,6 +81,9 @@ export function AppShell() {
               </>
             )}
             <div className="mt-3">
+              <SidebarLink to="/perfil/mcp-keys" icon={KeyIcon}>
+                Claves MCP
+              </SidebarLink>
               <SidebarLink to="/perfil" icon={Cog6ToothIcon}>
                 Mi perfil
               </SidebarLink>
