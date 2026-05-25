@@ -204,6 +204,15 @@ export const envSchema = z.object({
   // conviene apagarla salvo que se sirva detrás de auth — los schemas
   // de la API son superficie de inteligencia para un atacante.
   SWAGGER_ENABLED: booleanString.default(true),
+
+  // MCP — servidor expuesto en `/mcp` para que Claude (en WhatsApp via
+  // connector) opere tickets en nombre del usuario. Auth por API key
+  // personal por usuario. Ver `tikoraDocs/tikora-mcp.md`.
+  MCP_ENABLED: booleanString.default(true),
+  // Límite de keys activas (no revocadas) que un usuario puede tener al
+  // mismo tiempo. Subirlo no es peligroso, pero forzar revocación obliga
+  // a higiene de keys olvidadas.
+  MCP_MAX_ACTIVE_KEYS_PER_USER: z.coerce.number().int().min(1).max(50).default(5),
 });
 
 export type Env = z.infer<typeof envSchema>;
