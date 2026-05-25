@@ -41,14 +41,14 @@ Se acepta como limitación que **el flujo de notificación del agente al emplead
 
 ## 3. Decisiones de producto cerradas
 
-| #   | Decisión                            | Valor                                                                                                                                                                |
-| --- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Modelo de integración               | MCP via Claude en WhatsApp                                                                                                                                           |
-| 2   | Auth contra el MCP server           | API key personal por empleado, generada en la UI de Tikora (perfil del user), pegada al configurar el connector en claude.ai                                         |
-| 3   | Quién puede usar el connector       | Solo `users` pre-registrados en Tikora. El admin sigue siendo quien crea cuentas; el empleado autenticado en la UI genera su propia key                              |
-| 4   | Notificación del agente al empleado | Email (flow actual) + pull on-demand desde Claude. El empleado le pregunta a Claude por novedades y la tool `get_ticket` devuelve el estado y la última respuesta    |
-| 5   | Adjuntos en la v1                   | Solo texto. Si el empleado adjunta una imagen en WhatsApp, Claude la describe en texto y esa descripción entra al ticket. Soporte de adjuntos reales se difiere a v2 |
-| 6   | Tools del MCP server en v1          | `create_ticket`, `list_my_tickets`, `get_ticket`, `append_message_to_ticket`                                                                                         |
+| #   | Decisión                            | Valor                                                                                                                                                                                       |
+| --- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Modelo de integración               | MCP via Claude en WhatsApp                                                                                                                                                                  |
+| 2   | Auth contra el MCP server           | API key personal por empleado, generada en la UI de Tikora (perfil del user), pegada al configurar el connector en claude.ai                                                                |
+| 3   | Quién puede usar el connector       | Solo `users` pre-registrados en Tikora. El admin sigue siendo quien crea cuentas; el empleado autenticado en la UI genera su propia key                                                     |
+| 4   | Notificación del agente al empleado | Email (flow actual) + pull on-demand desde Claude. El empleado le pregunta a Claude por novedades y la tool `get_ticket` devuelve el estado y la última respuesta                           |
+| 5   | Adjuntos en la v1                   | Solo texto. Si el empleado adjunta una imagen en WhatsApp, Claude la describe en texto y esa descripción entra al ticket. Soporte de adjuntos reales se difiere a v2                        |
+| 6   | Tools del MCP server en v1          | `crear_ticket`, `listar_mis_tickets`, `obtener_ticket`, `agregar_mensaje_a_ticket` (nombres y campos en español — coherente con el dominio Tikora; Claude infiere bien en cualquier idioma) |
 
 ---
 
