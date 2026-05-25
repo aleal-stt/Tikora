@@ -1,4 +1,4 @@
-import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline';
 import type { McpKey } from '@tikora/core';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -15,6 +15,7 @@ import { ApiError } from '../../../lib/api-client';
 import { ConfirmDialog } from '../../admin/components/confirm-dialog';
 import { useMcpKeys, useRevokeMcpKey } from '../api/use-mcp-keys';
 import { CreateMcpKeyDialog } from '../components/create-mcp-key-dialog';
+import { RegenerateMcpKeyDialog } from '../components/regenerate-mcp-key-dialog';
 
 const dateFormatter = new Intl.DateTimeFormat('es-AR', {
   dateStyle: 'medium',
@@ -32,6 +33,7 @@ export function McpKeysPage() {
 
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState<McpKey | null>(null);
+  const [regenerating, setRegenerating] = useState<McpKey | null>(null);
 
   async function confirmRevoke() {
     if (!revoking) return;
@@ -101,15 +103,26 @@ export function McpKeysPage() {
                       <span>Último uso: {formatDate(key.lastUsedAt)}</span>
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setRevoking(key)}
-                    disabled={revokeMutation.isPending}
-                  >
-                    <TrashIcon className="h-4 w-4" />
-                    Revocar
-                  </Button>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setRegenerating(key)}
+                      title="Revoca la actual y genera una nueva con el mismo nombre"
+                    >
+                      <ArrowPathIcon className="h-4 w-4" />
+                      Regenerar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setRevoking(key)}
+                      disabled={revokeMutation.isPending}
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                      Revocar
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -118,6 +131,8 @@ export function McpKeysPage() {
       </Card>
 
       <CreateMcpKeyDialog open={creating} onOpenChange={setCreating} />
+
+      <RegenerateMcpKeyDialog target={regenerating} onClose={() => setRegenerating(null)} />
 
       <ConfirmDialog
         open={revoking !== null}

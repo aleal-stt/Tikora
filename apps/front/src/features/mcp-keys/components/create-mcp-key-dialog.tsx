@@ -1,9 +1,4 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import {
-  CheckIcon,
-  ClipboardDocumentIcon,
-  ExclamationTriangleIcon,
-} from '@heroicons/react/24/outline';
 import { createMcpKeySchema, type CreateMcpKey } from '@tikora/core';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -21,6 +16,7 @@ import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
 import { ApiError } from '../../../lib/api-client';
 import { useCreateMcpKey } from '../api/use-mcp-keys';
+import { RevealedSecretPanel } from './revealed-secret-panel';
 
 interface CreateMcpKeyDialogProps {
   open: boolean;
@@ -39,7 +35,6 @@ interface CreateMcpKeyDialogProps {
  */
 export function CreateMcpKeyDialog({ open, onOpenChange }: CreateMcpKeyDialogProps) {
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const createMutation = useCreateMcpKey();
 
   const form = useForm<CreateMcpKey>({
@@ -52,7 +47,6 @@ export function CreateMcpKeyDialog({ open, onOpenChange }: CreateMcpKeyDialogPro
   useEffect(() => {
     if (!open) {
       setRevealedSecret(null);
-      setCopied(false);
       form.reset({ name: '' });
     }
   }, [open, form]);
@@ -63,17 +57,6 @@ export function CreateMcpKeyDialog({ open, onOpenChange }: CreateMcpKeyDialogPro
       setRevealedSecret(response.secret);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : 'No se pudo crear la key.');
-    }
-  }
-
-  async function copyToClipboard() {
-    if (!revealedSecret) return;
-    try {
-      await navigator.clipboard.writeText(revealedSecret);
-      setCopied(true);
-      toast.success('Secreto copiado al portapapeles.');
-    } catch {
-      toast.error('No se pudo copiar. Seleccioná el texto manualmente.');
     }
   }
 
@@ -120,31 +103,12 @@ export function CreateMcpKeyDialog({ open, onOpenChange }: CreateMcpKeyDialogPro
             <DialogHeader>
               <DialogTitle>Guardá esta key ahora</DialogTitle>
               <DialogDescription>
-                Por seguridad, este secreto no se vuelve a mostrar. Si lo perdés, vas a tener que
-                generar una key nueva.
+                Por seguridad, este secreto no se vuelve a mostrar. Si lo perdés, podés regenerarla
+                desde la lista.
               </DialogDescription>
             </DialogHeader>
-            <div className="my-4 flex flex-col gap-3">
-              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                <ExclamationTriangleIcon className="mt-0.5 h-5 w-5 shrink-0" />
-                <span>
-                  Copialo y pegalo en la configuración del connector en claude.ai. Cualquiera con
-                  esta key puede operar tickets a tu nombre.
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 break-all rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm">
-                  {revealedSecret}
-                </code>
-                <Button type="button" variant="secondary" size="sm" onClick={copyToClipboard}>
-                  {copied ? (
-                    <CheckIcon className="h-4 w-4" />
-                  ) : (
-                    <ClipboardDocumentIcon className="h-4 w-4" />
-                  )}
-                  {copied ? 'Copiado' : 'Copiar'}
-                </Button>
-              </div>
+            <div className="my-4">
+              <RevealedSecretPanel secret={revealedSecret} />
             </div>
             <DialogFooter>
               <Button type="button" onClick={() => onOpenChange(false)}>

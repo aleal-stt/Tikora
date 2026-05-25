@@ -15,3 +15,9 @@ export async function createMcpKey(input: CreateMcpKey) {
 export async function revokeMcpKey(id: string) {
   return apiFetch<void>(`/me/mcp-keys/${id}`, { method: 'DELETE' });
 }
+
+export async function regenerateMcpKey(id: string) {
+  return apiFetch<CreateMcpKeyResponse>(`/me/mcp-keys/${id}/regenerate`, {
+    method: 'POST',
+  });
+}
