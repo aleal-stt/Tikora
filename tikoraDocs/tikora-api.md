@@ -707,7 +707,118 @@ El feedback de respuestas IA (Fase 2) se infiere implícitamente de las acciones
 
 ---
 
-## 15. Resumen — endpoints por módulo
+## 15. MCP (`/me/mcp-keys`, `/mcp`)
+
+Servidor MCP que expone tools de Tikora a Claude (típicamente desde el connector configurado en claude.ai → Claude en WhatsApp). Diseño y motivación en `tikora-mcp.md`.
+
+Dos superficies HTTP distintas:
+
+- **`/me/mcp-keys`** — gestión de API keys MCP del usuario autenticado, **autenticado por JWT** (las keys nuevas no pueden autenticar su propia creación: sería bootstrap circular).
+- **`/mcp`** — transport JSON-RPC del SDK MCP (`StreamableHTTPServerTransport`, stateless), **autenticado por API key MCP** en `Authorization: Bearer tk_mcp_…`. **No** acepta JWT.
+
+Ambas superficies se deshabilitan en bloque vía `MCP_ENABLED=false` (en ese caso `/mcp` responde `503 MCP_DISABLED`).
+
+| Método | Path                          | Auth       | Roles | Descripción                                                                           |
+| ------ | ----------------------------- | ---------- | ----- | ------------------------------------------------------------------------------------- |
+| GET    | `/me/mcp-keys`                | Bearer JWT | `*`   | Lista las keys activas (no revocadas) del caller.                                     |
+| POST   | `/me/mcp-keys`                | Bearer JWT | `*`   | Genera una key nueva. El `secret` se devuelve **una sola vez**.                       |
+| DELETE | `/me/mcp-keys/:id`            | Bearer JWT | `*`   | Revoca una key (soft-delete, idempotencia bloqueada con `409`).                       |
+| POST   | `/me/mcp-keys/:id/regenerate` | Bearer JWT | `*`   | Revoca la key indicada y crea una nueva con el mismo `name`. Para "perdí el secreto". |
+| ALL    | `/mcp`                        | Bearer MCP | `*`   | Transport JSON-RPC del SDK MCP (`initialize`, `tools/list`, `tools/call`).            |
+
+### 15.1 `GET /me/mcp-keys`
+
+**Response 200:**
+
+```json
+{
+  "items": [
+    {
+      "id": "...",
+      "name": "Claude en WhatsApp",
+      "prefix": "tk_mcp_xxxxx",
+      "lastUsedAt": "2026-05-26T12:34:56.000Z",
+      "createdAt": "2026-05-25T22:10:11.000Z"
+    }
+  ]
+}
+```
+
+`prefix` son los primeros 12 caracteres del secreto (`tk_mcp_` + 5 chars). Sirve para identificar la key en la lista sin exponer el hash. El secreto completo NO se devuelve nunca después del POST original.
+
+### 15.2 `POST /me/mcp-keys`
+
+**Request:** `{ "name": "Claude en WhatsApp" }` (1..80 chars, `trim`).
+
+**Response 201:**
+
+```json
+{
+  "key": {
+    "id": "...",
+    "name": "...",
+    "prefix": "tk_mcp_xxxxx",
+    "lastUsedAt": null,
+    "createdAt": "..."
+  },
+  "secret": "tk_mcp_xxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+```
+
+`secret` es el valor literal que el usuario pega en el connector de claude.ai. **Solo viaja en esta respuesta** — el back guarda únicamente el hash bcrypt y el `prefix`. Si se pierde, hay que `regenerate` o crear una nueva.
+
+**Errores:**
+
+- `409 MCP_KEY_LIMIT_REACHED` cuando el usuario ya tiene `MCP_MAX_ACTIVE_KEYS_PER_USER` (default 5) keys activas. Revocar alguna antes de generar otra.
+
+### 15.3 `DELETE /me/mcp-keys/:id`
+
+**Response 204** sin body. Soft-delete: marca `revokedAt` y la key queda inválida en la próxima request a `/mcp`.
+
+**Errores:**
+
+- `404 MCP_KEY_NOT_FOUND` si el id no existe, no es ObjectId válido, o pertenece a otro usuario.
+- `409 MCP_KEY_ALREADY_REVOKED` si ya estaba revocada. No es idempotente para que la UI pueda detectar el caso.
+
+### 15.4 `POST /me/mcp-keys/:id/regenerate`
+
+Revoca la key indicada y genera una reemplazante con el mismo `name`. Pensado para el caso "perdí el secreto": conserva la etiqueta para que el usuario reconozca la entrada en la lista.
+
+**Response 201:** mismo shape que `POST /me/mcp-keys` (`{ key, secret }`). El `secret` nuevo solo viaja en esta respuesta.
+
+**Errores:** mismos códigos que `DELETE` (`404 MCP_KEY_NOT_FOUND`, `409 MCP_KEY_ALREADY_REVOKED`).
+
+### 15.5 `ALL /mcp`
+
+Endpoint del transport MCP. **No** es REST: el body es JSON-RPC 2.0 del SDK `@modelcontextprotocol/sdk`. En Tikora se usa stateless — un par `transport` + `server` se crea, atiende la request y se cierra al terminar la respuesta (no hay sesión persistente entre llamadas).
+
+**Auth:** `Authorization: Bearer tk_mcp_<24 chars base62>`. El guard `McpAuthGuard` resuelve `tenantId`+`userId` desde el hash de la key y popula `request.user` con la misma forma que `JwtAuthGuard`, de modo que las tools delegan a los services existentes sin distinguir el origen del caller.
+
+**Errores de auth:**
+
+- `401 MCP_KEY_MISSING` cuando falta el header `Authorization`.
+- `401 MCP_KEY_INVALID` cuando la key no matchea ninguna activa (no existe, fue revocada, o fue truncada).
+- `503 MCP_DISABLED` cuando `MCP_ENABLED=false`.
+- `500 MCP_INTERNAL_ERROR` cuando el handler MCP falla antes de enviar la respuesta JSON-RPC.
+
+**Tools v1** (registradas con nombres en español; los schemas viven en `@tikora/core/src/lib/mcp-tools.ts`):
+
+| Tool                       | Input                                    | Output                                                                         | Delega a                                                                 |
+| -------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| `crear_ticket`             | `asunto` (5..120), `cuerpo` (10..5000)   | `{ ticketId, shortCode, estado, mensaje }`                                     | `TicketsService.create` → entra al pipeline de clasificación IA.         |
+| `listar_mis_tickets`       | `estado?`, `limite?` (1..20, default 10) | `{ tickets: [{ ticketId, shortCode, asunto, estado, prioridad, createdAt }] }` | `TicketsService.listMine` (cap 100, filtro `estado` en memoria).         |
+| `obtener_ticket`           | `ticketId` (ObjectId)                    | `{ ticket, ultimaRespuestaAgente, historial[10] }`                             | `TicketsService.getByIdForCaller` + `InteractionsService.listForTicket`. |
+| `agregar_mensaje_a_ticket` | `ticketId` (ObjectId), `texto` (1..2000) | `{ ok: true, mensaje }`                                                        | `InteractionsService.createForCaller` (tipo `usuario`).                  |
+
+Las `ApiException` que tiren los services se mapean a `CallToolResult { isError: true, content: [...] }` por `tool-helpers.ts:toolError()`, que extrae el `message` en español y lo entrega a Claude como contenido de texto.
+
+Schemas Zod compartidos en `@tikora/core` → `mcpKeySchema`, `createMcpKeySchema`, `createMcpKeyResponseSchema`, `crearTicketInputSchema`, `listarMisTicketsInputSchema`, `obtenerTicketInputSchema`, `agregarMensajeATicketInputSchema` (y sus `*OutputSchema`).
+
+Detalle de comportamiento, motivos de cada elección (incluyendo por qué no hay `areaId` en `crear_ticket` y por qué el filtro de `estado` es in-memory) en `tikora-mcp.md` §4.5.
+
+---
+
+## 16. Resumen — endpoints por módulo
 
 | Módulo          | Endpoints                                                                                                                                                                                                                                        |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -722,12 +833,13 @@ El feedback de respuestas IA (Fase 2) se infiere implícitamente de las acciones
 | `search`        | `GET /search`                                                                                                                                                                                                                                    |
 | `admin`         | `GET /admin/metrics`, `GET /admin/ai-metrics`, `GET/PATCH /admin/thresholds`, `GET /admin/ai-logs[/:callId]`, `GET /admin/audit-log`, `GET/PATCH /admin/sla-config`                                                                              |
 | `feedback`      | `POST/GET /tickets/:id/classification-feedback`                                                                                                                                                                                                  |
+| `mcp`           | `GET/POST /me/mcp-keys`, `DELETE /me/mcp-keys/:id`, `POST /me/mcp-keys/:id/regenerate`, `ALL /mcp` (JSON-RPC, auth por API key MCP)                                                                                                              |
 
-**Total Fase 1:** ~45 endpoints. Fase 2 agrega los 4 de `ai-response`.
+**Total Fase 1:** ~45 endpoints. Fase 2 agrega los 4 de `ai-response`. Fase MCP agrega 4 REST + el transport `/mcp`.
 
 ---
 
-## 16. Reglas para implementadores
+## 17. Reglas para implementadores
 
 - Cada endpoint nuevo se registra primero en este documento, luego se implementa.
 - El request y response schema **vive en `@tikora/core`** y se referencia por nombre (`CreateTicketSchema`, etc.).

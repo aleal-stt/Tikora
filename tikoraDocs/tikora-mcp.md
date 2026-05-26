@@ -280,12 +280,12 @@ Smoke front en browser validado por el usuario: crear/copy/revocar/regenerar fun
 4. ❌ Property test del input de `crear_ticket` con `fast-check`. Pendiente (los tests actuales son ejemplos puntuales).
 5. ❌ Smoke con el connector real en claude.ai → WhatsApp. Pendiente — bloquea cierre de v1 desde la perspectiva del usuario final.
 
-### Fase 4 — Docs y release ⏳ EN CURSO
+### Fase 4 — Docs y release ✅ COMPLETADA
 
 1. ✅ Este documento actualizado con paths, decisiones y comportamientos reales (estás leyendo el resultado).
-2. ❌ Bloque en `tikora-api.md` para los nuevos endpoints REST `/me/mcp-keys` + `POST /mcp`. Pendiente.
-3. ❌ Sección "MCP" en `tikora-setup.md` con pasos para configurar el connector en claude.ai. Pendiente.
-4. ❌ Entrada nueva en `decisiones-tecnicas.md` resumiendo §2 de este doc. Pendiente.
+2. ✅ Bloque MCP en `tikora-api.md` §15 — endpoints REST `/me/mcp-keys` + transport `POST /mcp` con códigos de error y tabla de tools v1.
+3. ✅ Sección "MCP" en `tikora-setup.md` §7.7 — pasos para generar key, exponer back con túnel, configurar connector en claude.ai y smoke curl directo. Troubleshooting MCP en §8.
+4. ✅ §28 en `decisiones-tecnicas.md` — decisión A sobre B/C/D, motivos (costo cero, ToS WhatsApp) y trade-offs (sin push real).
 
 ---
 

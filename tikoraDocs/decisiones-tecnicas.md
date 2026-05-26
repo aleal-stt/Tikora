@@ -659,3 +659,41 @@ La decisión original (§3) eligió el SDK de Anthropic asumiendo costo cubierto
 - `EMAIL_FROM` debe coincidir con `SMTP_USER` cuando se usa Gmail (anti-spoofing). Otros proveedores son más flexibles.
 - La abstracción `EmailDeliverer` del módulo `email` aísla del proveedor: cambiar de SMTP a una API HTTP-only es swap de implementación.
 - Nunca versionar `SMTP_PASS` ni `EMAIL_*` con valores reales — `.env.example` solo trae placeholders.
+
+---
+
+## 28. Integración con WhatsApp — MCP via Claude (no Business API)
+
+**Decisión:** Exponer un **servidor MCP** dentro del back de Tikora (módulo `apps/back/src/mcp/`, endpoint `POST /api/v1/mcp` con `StreamableHTTPServerTransport` stateless) para que cada empleado configure un **connector custom en claude.ai** apuntando a Tikora. Una vez configurado, el connector queda automáticamente disponible en la surface de WhatsApp (Claude responde por el número oficial de Anthropic), y desde ahí el empleado puede invocar tools que crean/listan/consultan/comentan tickets. Auth por **API key personal por usuario** (`tk_mcp_<24 chars base62>`), generada desde `/perfil/mcp-keys` y hasheada con bcrypt en Mongo. Detalle completo en `tikora-mcp.md`.
+
+**Opciones evaluadas:**
+
+| Opción                                         | Inbound (crear ticket)  | Outbound (push del agente)      | Costo                                               | Riesgo                                                                |
+| ---------------------------------------------- | ----------------------- | ------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------- |
+| **A. MCP via Claude en WhatsApp (elegida)**    | Claude invoca tools MCP | ❌ Solo pull (`obtener_ticket`) | Cero — no requiere Meta/Twilio                      | Bajo — depende de Anthropic, sin ToS-violation                        |
+| B. WhatsApp Business API (Twilio o Meta Cloud) | Webhook directo         | ✅ Push real                    | Pago — número verificado, conversaciones facturadas | Bajo, pero requiere alta formal                                       |
+| C. Híbrido A + B                               | Ambos canales           | ✅ Push por Business API        | Pago (mismo que B) + complejidad doble              | Doble integración                                                     |
+| D. WhatsApp Web no oficial (open-wa / Baileys) | Cliente headless        | ✅ Push                         | Cero monetario                                      | **Inaceptable** — viola ToS; Meta endureció enforcement en enero 2026 |
+
+**Por qué se eligió A:**
+
+- **Restricción dura de costo cero** en MVP/muestreo descartó B (Twilio sandbox es gratis solo para devs que escriben `join xxx-xxx`; migrar a número real cuesta). Sin presupuesto disponible no se puede pagar Business API ahora.
+- **D queda descartada por ToS.** El riesgo de ban impredecible es inaceptable para un sistema que va a ser presentado a jefes.
+- **MCP es una superficie estable de Anthropic.** El protocolo está versionado, el SDK oficial (`@modelcontextprotocol/sdk@1.29.0`, pinned exacto) está mantenido por Anthropic, y los connectors custom en claude.ai son una feature de producto soportada — no un workaround.
+- **Diseño limpio:** las tools delegan a los services existentes (`TicketsService`, `InteractionsService`), por lo que un ticket creado vía MCP es indistinguible en Mongo de uno creado por la UI y entra al mismo pipeline IA. No hay rama paralela del dominio.
+
+**Trade-offs aceptados:**
+
+- **No hay push real al requester.** Si el agente responde el ticket, el empleado no recibe notificación por WhatsApp salvo que le pregunte explícitamente a Claude _"¿hay novedades en mi ticket?"_. El canal principal de notificación sigue siendo el email actual del módulo `email` (decisión §27). El día que haya presupuesto para Business API, MCP queda como canal alternativo o se retira.
+- **El usuario tiene que copiar y pegar el secreto** en claude.ai (no hay OAuth flow). Aceptable porque ya están preregistrados y la pantalla `/perfil/mcp-keys` muestra el secreto una sola vez con un botón de copiar. OAuth-flow MCP queda fuera de alcance v1 (requeriría implementar un IdP propio).
+- **Adopción no garantizada.** Que los empleados quieran abrir Claude para crear tickets es una hipótesis a validar en muestreo. Si la adopción es baja, no se escala el módulo y se vuelve a evaluar B post-piloto.
+- **Solo texto en v1.** WhatsApp permite adjuntos vía Claude (foto, audio, pdf), pero el transporte de blobs vía MCP custom connector no está validado todavía. Si el usuario manda foto, Claude la describe y la descripción va al ticket como cuerpo.
+
+**Reglas operativas:**
+
+- Las API keys MCP **no son JWT** y viven en una colección separada (`McpApiKey`). El guard `McpAuthGuard` resuelve `tenantId+userId` y popula `request.user` con la misma forma que el JWT, de modo que los services downstream no distinguen el origen del caller.
+- Solo se persiste el **hash bcrypt** del secreto + un `prefix` visible de 12 chars (`tk_mcp_` + 5). El secreto completo nunca queda en Mongo ni en logs.
+- Cap configurable de keys activas por usuario (`MCP_MAX_ACTIVE_KEYS_PER_USER`, default 5) para forzar higiene de keys olvidadas.
+- Las tools usan **nombres y campos en español** (`crear_ticket`, `asunto`, `cuerpo`, `estado`) coherente con el resto del dominio Tikora; Claude infiere bien en ambos idiomas.
+- El SDK MCP está **pineado en `1.29.0`**. Actualizar pasa por revisar release notes + re-correr smoke (curl + claude.ai real).
+- El endpoint completo se puede deshabilitar con `MCP_ENABLED=false` (devuelve `503 MCP_DISABLED`) sin tener que sacar el módulo del build.

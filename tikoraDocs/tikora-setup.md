@@ -481,23 +481,107 @@ pnpm exec nx serve back --configuration=worker     # solo procesa colas
 pnpm exec nx run back:reindex-kb -- --tenantId <id> [--dry-run]
 ```
 
+### 7.7 Conectar Claude (claude.ai → WhatsApp) al servidor MCP
+
+Tikora expone un servidor MCP en `POST /api/v1/mcp` que permite a Claude operar tickets en nombre del usuario (crear, listar, consultar y comentar). El flujo end-to-end es **el usuario configura un connector custom en claude.ai apuntando al back de Tikora; ese connector queda disponible automáticamente en la surface de WhatsApp** (Claude responde por el número oficial de Anthropic). Decisiones y motivos en `tikora-mcp.md`.
+
+#### Variables de entorno
+
+En `apps/back/.env`:
+
+```bash
+MCP_ENABLED=true                   # default true; false → /mcp responde 503 MCP_DISABLED
+MCP_MAX_ACTIVE_KEYS_PER_USER=5     # cap de keys activas por usuario antes de forzar revocación
+```
+
+No hay variables MCP en el front: la pantalla de gestión consume los mismos endpoints REST con la JWT del usuario.
+
+#### Generar una API key MCP en Tikora
+
+1. Login en el front como el usuario al que vas a conectar (cualquier rol).
+2. Ir a `/perfil/mcp-keys` (también accesible desde el item "Claves MCP" del sidebar).
+3. Botón **"Crear key"**, ponerle un nombre descriptivo (ej.: `Claude en WhatsApp`), copiar el `secret` (`tk_mcp_…`) que aparece **una sola vez**.
+4. Si lo perdés: el botón **"Regenerar"** en la lista revoca la actual y crea una nueva con el mismo nombre.
+
+#### Exponer el back para que claude.ai lo alcance
+
+claude.ai necesita una URL HTTPS pública. En dev usar un túnel:
+
+```bash
+# Con ngrok (gratis):
+ngrok http 3001
+# Devuelve algo como https://abcd-1234.ngrok-free.app
+```
+
+El URL del connector queda: `https://<host-publico>/api/v1/mcp`. Para que CORS no bloquee, agregar el host público a `CORS_ORIGINS` del back y reiniciar.
+
+> ⚠ En producción el back debe estar detrás de HTTPS real y un dominio estable. Las keys MCP viajan en `Authorization: Bearer …`; sin TLS quedan expuestas en el camino.
+
+#### Configurar el connector en claude.ai
+
+1. https://claude.ai → **Settings → Connectors → Add custom**.
+2. Tipo: **HTTP**. URL: `https://<host-publico>/api/v1/mcp`.
+3. Auth: **Bearer token**. Pegar el `secret` `tk_mcp_…` generado en Tikora.
+4. Aceptar permisos. Una vez configurado, el connector aparece automáticamente en la surface de WhatsApp para el mismo número de Anthropic que el usuario ya tiene en su Claude.
+
+#### Probar las tools
+
+Desde claude.ai (o desde WhatsApp, ya con el connector activo), pedir:
+
+- _"Crea un ticket que diga que la impresora del piso 3 no imprime."_ → debe responder con `shortCode` y `ticketId`.
+- _"Lista mis últimos 5 tickets abiertos."_ → debe enumerar tickets del usuario.
+- _"Muéstrame el detalle del ticket TKT-XXX"_ → debe traer asunto, estado y última respuesta del agente si la hay.
+- _"Agrega este comentario al ticket TKT-XXX: …"_ → debe confirmar el append.
+
+Si Claude no llama tools, revisar que el connector quede en estado **Connected** en Settings → Connectors. Si rechaza la auth, ver troubleshooting.
+
+#### Smoke directo con `curl` (sin Claude)
+
+Útil para validar que el back está OK antes de tocar claude.ai:
+
+```bash
+SECRET=tk_mcp_xxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# initialize
+curl -sS -X POST https://<host>/api/v1/mcp \
+  -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+
+# tools/list
+curl -sS -X POST https://<host>/api/v1/mcp \
+  -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+# tools/call listar_mis_tickets
+curl -sS -X POST https://<host>/api/v1/mcp \
+  -H "Authorization: Bearer $SECRET" -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"listar_mis_tickets","arguments":{"limite":5}}}'
+```
+
+Respuestas esperadas: `200` con el body JSON-RPC del SDK MCP. Códigos de error en `tikora-api.md` §15.5.
+
 ---
 
 ## 8. Troubleshooting
 
-| Síntoma                                                               | Causa probable                                                           | Solución                                                                                               |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `MongooseServerSelectionError` al arrancar back                       | Mongo no está corriendo o `MONGODB_URI` mal.                             | Verificar `docker compose ps` o probar con `mongosh "$MONGODB_URI"`.                                   |
-| Login responde 401 con cookies en dev                                 | Origen distinto entre front y back.                                      | Verificar que el front consume `/api/v1` (relativo) y el proxy de Vite está activo.                    |
-| `Vector search index not found`                                       | El índice de Atlas no se creó o el nombre no coincide.                   | Re-crear con el nombre exacto de `MONGODB_VECTOR_INDEX_NAME`.                                          |
-| `LLM API error 401/402`                                               | API key inválida o sin cuota.                                            | Verificar `LLM_API_KEY` y cuota del proveedor. Para Gemini free tier ver `aistudio.google.com/apikey`. |
-| `LLM API error 429`                                                   | Rate limit del free tier.                                                | Esperar al reset (~1 min en Gemini) o subir a tier pago / cambiar `LLM_BASE_URL`.                      |
-| `Email not delivered` y no falla                                      | `EMAIL_DELIVERY_MODE=log`.                                               | Cambiar a `live` y configurar `SMTP_*` (ver §4.4).                                                     |
-| `Invalid login: 535-5.7.8 Username and Password not accepted` (Gmail) | Estás usando la contraseña normal de Gmail, no un app password.          | Generar app password en https://myaccount.google.com/apppasswords y pegarlo en `SMTP_PASS`.            |
-| Worker no procesa jobs                                                | Redis no está, o `REDIS_URL` apunta a otro lado.                         | `redis-cli ping` debe responder `PONG`.                                                                |
-| `Cannot find module '@tikora/core'`                                   | Paths de TS o build del paquete sin compilar.                            | Re-ejecutar `pnpm install` y verificar `tsconfig.base.json`.                                           |
-| Cookie de refresh no aparece en el browser                            | Falta `credentials: 'include'` en fetch o el back no setea `Set-Cookie`. | Revisar interceptor de `lib/api-client.ts` y CORS del back.                                            |
-| HMR del front no recarga                                              | Permisos de inotify en Linux.                                            | `sudo sysctl fs.inotify.max_user_watches=524288`.                                                      |
+| Síntoma                                                               | Causa probable                                                           | Solución                                                                                                                                                       |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MongooseServerSelectionError` al arrancar back                       | Mongo no está corriendo o `MONGODB_URI` mal.                             | Verificar `docker compose ps` o probar con `mongosh "$MONGODB_URI"`.                                                                                           |
+| Login responde 401 con cookies en dev                                 | Origen distinto entre front y back.                                      | Verificar que el front consume `/api/v1` (relativo) y el proxy de Vite está activo.                                                                            |
+| `Vector search index not found`                                       | El índice de Atlas no se creó o el nombre no coincide.                   | Re-crear con el nombre exacto de `MONGODB_VECTOR_INDEX_NAME`.                                                                                                  |
+| `LLM API error 401/402`                                               | API key inválida o sin cuota.                                            | Verificar `LLM_API_KEY` y cuota del proveedor. Para Gemini free tier ver `aistudio.google.com/apikey`.                                                         |
+| `LLM API error 429`                                                   | Rate limit del free tier.                                                | Esperar al reset (~1 min en Gemini) o subir a tier pago / cambiar `LLM_BASE_URL`.                                                                              |
+| `Email not delivered` y no falla                                      | `EMAIL_DELIVERY_MODE=log`.                                               | Cambiar a `live` y configurar `SMTP_*` (ver §4.4).                                                                                                             |
+| `Invalid login: 535-5.7.8 Username and Password not accepted` (Gmail) | Estás usando la contraseña normal de Gmail, no un app password.          | Generar app password en https://myaccount.google.com/apppasswords y pegarlo en `SMTP_PASS`.                                                                    |
+| Worker no procesa jobs                                                | Redis no está, o `REDIS_URL` apunta a otro lado.                         | `redis-cli ping` debe responder `PONG`.                                                                                                                        |
+| `Cannot find module '@tikora/core'`                                   | Paths de TS o build del paquete sin compilar.                            | Re-ejecutar `pnpm install` y verificar `tsconfig.base.json`.                                                                                                   |
+| Cookie de refresh no aparece en el browser                            | Falta `credentials: 'include'` en fetch o el back no setea `Set-Cookie`. | Revisar interceptor de `lib/api-client.ts` y CORS del back.                                                                                                    |
+| HMR del front no recarga                                              | Permisos de inotify en Linux.                                            | `sudo sysctl fs.inotify.max_user_watches=524288`.                                                                                                              |
+| `/mcp` responde `503 MCP_DISABLED`                                    | Variable `MCP_ENABLED=false` o ausente con override `false`.             | Setear `MCP_ENABLED=true` en `apps/back/.env` y reiniciar el back.                                                                                             |
+| claude.ai marca el connector como "Failed to connect"                 | URL HTTPS no alcanzable o el back rechaza por CORS.                      | Verificar que el túnel (ngrok) responde y agregar el host público a `CORS_ORIGINS` del back.                                                                   |
+| `/mcp` responde `401 MCP_KEY_INVALID`                                 | Secreto pegado mal, key revocada, o se truncó al copiar.                 | Regenerar la key desde `/perfil/mcp-keys` y volver a pegar el secreto completo en claude.ai.                                                                   |
+| `POST /me/mcp-keys` responde `409 MCP_KEY_LIMIT_REACHED`              | El usuario ya alcanzó `MCP_MAX_ACTIVE_KEYS_PER_USER` (default 5).        | Revocar keys que no se usen desde `/perfil/mcp-keys` antes de crear otra, o subir el cap.                                                                      |
+| Claude no llama las tools y responde "no puedo hacerlo"               | El connector está conectado pero Claude decide no invocar.               | Pedir explícitamente la acción ("crea un ticket que…", "lista mis tickets") y revisar `description` de tools en `mcp-server.service.ts` si el patrón persiste. |
 
 ---
 
