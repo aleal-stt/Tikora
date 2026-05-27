@@ -41,14 +41,14 @@ Se acepta como limitación que **el flujo de notificación del agente al emplead
 
 ## 3. Decisiones de producto cerradas
 
-| #   | Decisión                            | Valor                                                                                                                                                                                       |
-| --- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Modelo de integración               | MCP via Claude en WhatsApp                                                                                                                                                                  |
-| 2   | Auth contra el MCP server           | API key personal por empleado, generada en la UI de Tikora (perfil del user), pegada al configurar el connector en claude.ai                                                                |
-| 3   | Quién puede usar el connector       | Solo `users` pre-registrados en Tikora. El admin sigue siendo quien crea cuentas; el empleado autenticado en la UI genera su propia key                                                     |
-| 4   | Notificación del agente al empleado | Email (flow actual) + pull on-demand desde Claude. El empleado le pregunta a Claude por novedades y la tool `get_ticket` devuelve el estado y la última respuesta                           |
-| 5   | Adjuntos en la v1                   | Solo texto. Si el empleado adjunta una imagen en WhatsApp, Claude la describe en texto y esa descripción entra al ticket. Soporte de adjuntos reales se difiere a v2                        |
-| 6   | Tools del MCP server en v1          | `crear_ticket`, `listar_mis_tickets`, `obtener_ticket`, `agregar_mensaje_a_ticket` (nombres y campos en español — coherente con el dominio Tikora; Claude infiere bien en cualquier idioma) |
+| #   | Decisión                            | Valor                                                                                                                                                                                                                    |
+| --- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Modelo de integración               | MCP via Claude en WhatsApp                                                                                                                                                                                               |
+| 2   | Auth contra el MCP server           | Dos caminos coexistiendo: (a) **OAuth 2.1 con Authorization Code + PKCE + DCR** — usado por claude.ai connector custom; (b) **API key personal** (`tk_mcp_…`) generada en la UI — usada por curl/MCP Inspector. Ver §4.4 |
+| 3   | Quién puede usar el connector       | Solo `users` pre-registrados en Tikora. El admin sigue siendo quien crea cuentas; el empleado autenticado en la UI genera su propia key                                                                                  |
+| 4   | Notificación del agente al empleado | Email (flow actual) + pull on-demand desde Claude. El empleado le pregunta a Claude por novedades y la tool `get_ticket` devuelve el estado y la última respuesta                                                        |
+| 5   | Adjuntos en la v1                   | Solo texto. Si el empleado adjunta una imagen en WhatsApp, Claude la describe en texto y esa descripción entra al ticket. Soporte de adjuntos reales se difiere a v2                                                     |
+| 6   | Tools del MCP server en v1          | `crear_ticket`, `listar_mis_tickets`, `obtener_ticket`, `agregar_mensaje_a_ticket` (nombres y campos en español — coherente con el dominio Tikora; Claude infiere bien en cualquier idioma)                              |
 
 ---
 
@@ -114,19 +114,63 @@ export const McpApiKeySchema = z.object({
 
 **No se agrega `phoneE164` al user.** El connector identifica al user por la key, no por número.
 
-### 4.4 Auth MCP
+### 4.4 Auth MCP — dos caminos
 
-Formato de la API key: `tk_mcp_<24 chars base62>` (total 31 chars). El cuerpo aleatorio se genera con `crypto.randomBytes` + rejection sampling sobre los 62 chars del alfabeto base62 (descarta bytes ≥ 248 para que cada char sea equiprobable). El secreto completo se muestra **una sola vez** al generarla; después solo queda el prefix visible (`tk_mcp_xxxxx`, 12 chars = prefijo fijo + 5 chars random) y el hash bcrypt.
+El guard `McpAuthGuard` enruta por **prefijo del Bearer token** y soporta dos credenciales que conviven en el mismo endpoint `/api/v1/mcp`:
 
-Flujo de validación en cada request MCP:
+| Prefijo         | Quién la usa                          | Cómo se obtiene                                           |
+| --------------- | ------------------------------------- | --------------------------------------------------------- |
+| `tk_mcp_…`      | curl, MCP Inspector, scripts internos | Generada en `/perfil/mcp-keys` y pegada como Bearer plano |
+| `tk_oauth_at_…` | claude.ai connector custom            | Emitida por el flow OAuth (ver §4.4.2)                    |
+
+Ambas resuelven al mismo `AuthenticatedUser { userId, tenantId, role, areaIds }`, por lo que las tools downstream no distinguen el origen del caller.
+
+#### 4.4.1 API key MCP directa (`tk_mcp_…`)
+
+Formato: `tk_mcp_<24 chars base62>` (total 31 chars). El cuerpo aleatorio se genera con `crypto.randomBytes` + rejection sampling sobre los 62 chars del alfabeto base62 (descarta bytes ≥ 248 para que cada char sea equiprobable). El secreto completo se muestra **una sola vez** al generarla; después solo queda el prefix visible (`tk_mcp_xxxxx`, 12 chars = prefijo fijo + 5 chars random) y el hash bcrypt.
+
+Flujo de validación:
 
 1. El connector manda la key en el header `Authorization: Bearer tk_mcp_xxx...`.
-2. `McpAuthGuard` extrae el header.
+2. `McpAuthGuard` extrae el header y detecta el prefijo `tk_mcp_`.
 3. `McpAuthService` toma los primeros 12 chars (`tk_mcp_xxxxx`), busca todas las keys con ese prefix no revocadas (esperable: 1, máximo poquísimas por colisión de prefix).
-4. Por cada candidata corre `bcrypt.compare` contra el secreto completo. Si matchea, resuelve `tenantId+userId` y los inyecta en el contexto MCP equivalente al `AuthenticatedUser` que el guard JWT usa para HTTP.
+4. Por cada candidata corre `bcrypt.compare` contra el secreto completo. Si matchea, resuelve `tenantId+userId` y los inyecta en el contexto MCP.
 5. Actualiza `lastUsedAt` async (sin bloquear la response).
 
 El hashing se hace con `bcryptjs`, la misma librería que ya usa el back para passwords.
+
+#### 4.4.2 OAuth 2.1 (Authorization Code + PKCE + DCR)
+
+claude.ai exige un IdP OAuth completo al configurar un connector custom — no acepta Bearer plano. El módulo `OAuthModule` (`apps/back/src/oauth/`) implementa el flow estándar consumiendo `mcpAuthRouter` del SDK MCP, que monta automáticamente los endpoints en la raíz del host (fuera del global prefix `/api/v1`):
+
+| Endpoint                                               | Rol                                                                                    |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `GET /.well-known/oauth-authorization-server`          | Metadata del IdP (RFC 8414). claude.ai lo descubre desde `OAUTH_ISSUER_URL`.           |
+| `GET /.well-known/oauth-protected-resource/api/v1/mcp` | Metadata del resource server (RFC 9728), apunta al issuer.                             |
+| `POST /register`                                       | Dynamic Client Registration (RFC 7591). Devuelve `client_id`+`client_secret`.          |
+| `GET /authorize`                                       | Inicia el flow. Persiste params como row `OAuthAuthCode` pending y redirige a consent. |
+| `POST /token`                                          | Intercambia `code` → access+refresh, o `refresh_token` → par rotado.                   |
+| `POST /revoke`                                         | Revoca un access o refresh token.                                                      |
+| `GET /oauth/consent` / `POST /oauth/consent`           | Pantalla server-side (HTML directo) que pide email+password al user de Tikora.         |
+
+**Modelo de datos** — 4 colecciones nuevas:
+
+- `oauth_clients`: clientes registrados por DCR. **`clientSecret` se guarda en claro** (32 bytes random base64url ≈ 256 bits) porque el SDK lo compara con `!==` directo sin función overridable; Atlas con encryption at rest + revocabilidad por DELETE son el trade-off aceptado. Si en el futuro se requiere defensa en profundidad, la migración natural es AES-256 simétrica con clave en env.
+- `oauth_auth_codes`: row único que cubre dos fases consecutivas — **pending** (sin `userId`, esperando consent) → **authorized** (con `userId`+`tenantId`+`authorizedAt`). Single-use: `exchangedAt` se setea atómicamente vía `findOneAndUpdate(..., exchangedAt: null)` para que dos requests concurrentes con el mismo code no emitan tokens duplicados. TTL absoluto 5 min, post-autorización se reduce a 60s (OAuth 2.1 §4.1.3).
+- `oauth_access_tokens` y `oauth_refresh_tokens`: bcrypt hash + `prefix` de 16 chars indexado para acotar la búsqueda como en las MCP keys. TTLs configurables por env (`OAUTH_ACCESS_TOKEN_TTL_SECONDS` default 1h; `OAUTH_REFRESH_TOKEN_TTL_SECONDS` default 30 días). Refresh **rotativo** (single-use): cada uso emite par nuevo y marca el anterior como `usedAt`. Si llega un refresh con `usedAt != null`, el provider asume **reuso adversarial** y revoca toda la cadena (`clientId+userId`).
+
+**PKCE** (RFC 7636) obligatorio con método `S256`. El verifier viaja en `POST /token` y el SDK lo valida contra el `code_challenge` guardado.
+
+**Pantalla de consent** (`OauthConsentController` en `/oauth/consent`): HTML server-side sin template engine para no agregar dependencias. Pide email+password contra Tikora (vía `UsersService.findByEmail` + `PasswordService.compare`, **sin pasar por `AuthService`** para no emitir JWTs propios ni manipular refresh cookies — el flow OAuth es independiente del de la UI). Si valida, completa el row pending con `userId`+`tenantId` y redirige al cliente con `code`+`state`. El botón "Cancelar" redirige con `error=access_denied`.
+
+**Configuración del connector en claude.ai** (alto nivel):
+
+1. Exponer el back con un túnel HTTPS público (ngrok/cloudflared). Setear `OAUTH_ISSUER_URL` en `.env` a esa URL (raíz, sin slash final) y reiniciar.
+2. En claude.ai: Settings → Connectors → Add custom → MCP server URL = `${OAUTH_ISSUER_URL}/api/v1/mcp`.
+3. claude.ai descubre el IdP, se registra con DCR, y dispara el flow. La pantalla de consent de Tikora aparece embebida; el user pega sus credenciales y autoriza.
+4. claude.ai persiste los tokens y los usa transparentemente en cada invocación de tool.
+
+Detalle paso a paso del setup local en `tikora-setup.md` §7.7.
 
 ### 4.5 Tools v1 — especificación
 
@@ -287,6 +331,22 @@ Smoke front en browser validado por el usuario: crear/copy/revocar/regenerar fun
 3. ✅ Sección "MCP" en `tikora-setup.md` §7.7 — pasos para generar key, exponer back con túnel, configurar connector en claude.ai y smoke curl directo. Troubleshooting MCP en §8.
 4. ✅ §28 en `decisiones-tecnicas.md` — decisión A sobre B/C/D, motivos (costo cero, ToS WhatsApp) y trade-offs (sin push real).
 
+### Fase 5 — OAuth para connector claude.ai ✅ COMPLETADA (2026-05-27)
+
+Commits en `main`: `95200a0` (env vars), `35e47d6` (OAuthModule completo), `57cf126` (MCP guard), `374895a` (bootstrap).
+
+1. ✅ Schemas Mongoose `oauth_clients`, `oauth_auth_codes`, `oauth_access_tokens`, `oauth_refresh_tokens` (`apps/back/src/oauth/schemas/`).
+2. ✅ `OAuthClientsService` implementando `OAuthRegisteredClientsStore` del SDK con DCR.
+3. ✅ `TikoraOAuthProvider` implementando `OAuthServerProvider` con `authorize`, `challengeForAuthorizationCode`, `exchangeAuthorizationCode`, `exchangeRefreshToken`, `verifyAccessToken`, `revokeToken`. Detección de reuso de refresh con revocación de cadena.
+4. ✅ `OauthConsentController` con pantalla HTML server-side en `/oauth/consent`.
+5. ✅ `mcpAuthRouter` montado en `main.ts` con `OAUTH_ISSUER_URL` configurado por env.
+6. ✅ `McpAuthGuard` reconoce ambos prefijos (`tk_mcp_…` y `tk_oauth_at_…`).
+7. ✅ Vars `OAUTH_ISSUER_URL`, `OAUTH_ACCESS_TOKEN_TTL_SECONDS`, `OAUTH_REFRESH_TOKEN_TTL_SECONDS` en `env.schema.ts` y `.env.example`.
+
+**Smoke curl validado end-to-end** (2026-05-27): well-known metadata, DCR, authorize→consent→code, token exchange con PKCE, MCP `tools/list`+`tools/call` con access token, refresh rotation, reuse-detection revoca cadena, access token revocado rechazado por el guard. La API key directa (`tk_mcp_…`) sigue funcionando sin regresión.
+
+**Pendiente**: smoke real con el connector custom de claude.ai contra un túnel HTTPS público (ngrok). Necesario para cerrar el riesgo "claude.ai rechaza la implementación" listado en §7.
+
 ---
 
 ## 6. Fuera de alcance v1
@@ -295,7 +355,6 @@ Se enumeran para que el siguiente plan los recoja, no para implementarlos ahora:
 
 - **Adjuntos** (imágenes, PDFs). Requiere validar si el transporte MCP propaga blobs del cliente WhatsApp y, en su caso, integrarlos con el módulo `attachments` existente.
 - **Notificaciones proactivas a Claude.** Si Claude permite tools tipo `pendingUpdates` que invoca al inicio de cada sesión, se podría agregar `get_my_pending_updates` para que avise el empleado de nuevas respuestas sin que pregunte.
-- **OAuth flow para el connector.** Mejor UX que la API key (no hay que copiar/pegar el secreto), pero requiere implementar un IdP MCP completo. Para v1 la API key alcanza.
 - **Reclasificación o reapertura desde la tool.** Si el ticket está cerrado, el empleado tiene que abrir uno nuevo o pedirle al agente que lo reabra desde la UI.
 - **Multi-tenant connector único.** Cada empleado configura su propia key. No hay un connector "Tikora" compartido por toda la empresa.
 - **Rate limiting por key.** No se implementa en v1; el cap natural lo da Claude (que llama tools secuencialmente) y los timeouts del back.
@@ -304,13 +363,13 @@ Se enumeran para que el siguiente plan los recoja, no para implementarlos ahora:
 
 ## 7. Riesgos y decisiones diferidas
 
-| Riesgo / pregunta abierta                                                              | Estado / mitigación                                                                                                                                                                                  |
-| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Que el contrato MCP de Anthropic cambie y rompa el server                              | SDK pineado en `1.29.0` (exact). Cuando se quiera actualizar, revisar release notes y volver a correr smoke curl + claude.ai.                                                                        |
-| Que el connector de claude.ai exija un IdP OAuth y rechace API key plain               | Smoke curl contra el endpoint demostró que el Bearer token funciona end-to-end con el SDK. **Falta validar contra claude.ai real**: si lo rechaza, hay que envolver el endpoint con un mini-IdP MCP. |
-| Que Claude no invoque las tools de forma consistente (decida no llamar `crear_ticket`) | Las `description` están escritas en español apuntando a casos concretos. Solo se valida con el smoke real desde WhatsApp; si hay problemas iterar las descriptions.                                  |
-| Adopción real: que los empleados no quieran usar Claude para crear tickets             | Muestrear con 2-3 empleados después del piloto interno; si la adopción es baja, no escalar y volver a evaluar Business API.                                                                          |
-| Posibilidad futura de querer push real del agente                                      | Migrar a opción Business API (Twilio o Meta Cloud) cuando haya presupuesto. El MCP server queda como canal alternativo o se retira.                                                                  |
+| Riesgo / pregunta abierta                                                              | Estado / mitigación                                                                                                                                                                                                                                                                                   |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Que el contrato MCP de Anthropic cambie y rompa el server                              | SDK pineado en `1.29.0` (exact). Cuando se quiera actualizar, revisar release notes y volver a correr smoke curl + claude.ai.                                                                                                                                                                         |
+| Que el connector de claude.ai exija un IdP OAuth y rechace API key plain               | **Resuelto el 2026-05-27** con la Fase 5 (OAuthModule). claude.ai ahora descubre el IdP en `OAUTH_ISSUER_URL`, se registra por DCR y obtiene access tokens vía Authorization Code + PKCE. Smoke curl end-to-end validado; **falta** el smoke real contra el connector de claude.ai sobre túnel ngrok. |
+| Que Claude no invoque las tools de forma consistente (decida no llamar `crear_ticket`) | Las `description` están escritas en español apuntando a casos concretos. Solo se valida con el smoke real desde WhatsApp; si hay problemas iterar las descriptions.                                                                                                                                   |
+| Adopción real: que los empleados no quieran usar Claude para crear tickets             | Muestrear con 2-3 empleados después del piloto interno; si la adopción es baja, no escalar y volver a evaluar Business API.                                                                                                                                                                           |
+| Posibilidad futura de querer push real del agente                                      | Migrar a opción Business API (Twilio o Meta Cloud) cuando haya presupuesto. El MCP server queda como canal alternativo o se retira.                                                                                                                                                                   |
 
 ---
 
