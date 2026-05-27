@@ -21,6 +21,7 @@ import { KbModule } from '../kb/kb.module';
 import { McpModule } from '../mcp/mcp.module';
 import { MetricsModule } from '../metrics/metrics.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { OAuthModule } from '../oauth/oauth.module';
 import { RedisModule } from '../redis/redis.module';
 import { SeedModule } from '../seed/seed.module';
 import { SlaModule } from '../sla/sla.module';
@@ -80,6 +81,7 @@ import { UsersModule } from '../users/users.module';
     ClassificationModule,
     KbModule,
     AutoResponseModule,
+    OAuthModule,
     McpModule,
     NotificationsModule,
     AuthModule,

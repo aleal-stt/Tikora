@@ -3,22 +3,49 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';
 import cookieParser from 'cookie-parser';
 import { cleanupOpenApiDoc, createZodValidationPipe } from 'nestjs-zod';
 import { AppModule } from './app/app.module';
 import { createZodValidationException } from './common/validation/zod-validation.factory';
 import { Env } from './config/env.schema';
+import { OAUTH_DEFAULT_SCOPE } from './oauth/oauth.constants';
+import { TikoraOAuthProvider } from './oauth/services/tikora-oauth-provider.service';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get(ConfigService<Env, true>);
 
-  app.setGlobalPrefix('api/v1');
+  // Endpoints OAuth (`/authorize`, `/token`, `/register`, `/revoke`,
+  // `/.well-known/*`) y la pantalla de consent (`/oauth/consent`) viven
+  // FUERA del global prefix `/api/v1` porque claude.ai descubre el
+  // issuer en la raíz del host (RFC 8414).
+  app.setGlobalPrefix('api/v1', {
+    exclude: ['oauth/(.*)'],
+  });
   app.use(cookieParser());
   app.enableCors({
     origin: config.get('CORS_ORIGINS', { infer: true }),
     credentials: true,
   });
+
+  // `mcpAuthRouter` del SDK MCP monta automáticamente los endpoints
+  // OAuth standard al root (`/authorize`, `/token`, `/register`,
+  // `/revoke` y `/.well-known/oauth-authorization-server` +
+  // `/.well-known/oauth-protected-resource`). El provider de Tikora
+  // emite tokens opacos verificables contra Mongo.
+  const issuerUrl = new URL(config.get('OAUTH_ISSUER_URL', { infer: true }));
+  const resourceServerUrl = new URL(`${issuerUrl.origin}/api/v1/mcp`);
+  const oauthProvider = app.get(TikoraOAuthProvider);
+  app.use(
+    mcpAuthRouter({
+      provider: oauthProvider,
+      issuerUrl,
+      resourceServerUrl,
+      scopesSupported: [OAUTH_DEFAULT_SCOPE],
+      resourceName: 'Tikora MCP',
+    }),
+  );
   // Pipe Zod global con shape de error alineado a `tikora-api.md` §1
   // (`{statusCode, code, message, details}`). Sin esto, nestjs-zod
   // devuelve `{statusCode, message, errors[]}` que rompe el manejo de
