@@ -213,6 +213,23 @@ export const envSchema = z.object({
   // mismo tiempo. Subirlo no es peligroso, pero forzar revocación obliga
   // a higiene de keys olvidadas.
   MCP_MAX_ACTIVE_KEYS_PER_USER: z.coerce.number().int().min(1).max(50).default(5),
+
+  // OAuth — flow Authorization Code + PKCE + DCR que claude.ai usa
+  // cuando se configura un connector custom. Ver `tikoraDocs/tikora-mcp.md`
+  // §OAuth.
+  // OAUTH_ISSUER_URL: URL pública del back que claude.ai descubre. Debe
+  // apuntar a la raíz expuesta vía HTTPS (típicamente el túnel ngrok en
+  // dev). Ej: `https://abcd.ngrok-free.dev`. Sin slash final.
+  OAUTH_ISSUER_URL: z.string().url('OAUTH_ISSUER_URL debe ser una URL absoluta'),
+  // TTL del access token. 1h por default — corto para minimizar exposición.
+  OAUTH_ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).default(3600),
+  // TTL del refresh token. 30 días por default; se rota en cada uso, por
+  // lo que la ventana real de vida es la del último uso.
+  OAUTH_REFRESH_TOKEN_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .default(30 * 24 * 3600),
 });
 
 export type Env = z.infer<typeof envSchema>;
