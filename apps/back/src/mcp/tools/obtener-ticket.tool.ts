@@ -38,14 +38,17 @@ export function buildObtenerTicketHandler(
         fecha: i.createdAt,
       }));
 
-      // v1: nombre del agente queda genérico para evitar acoplar la tool
-      // a UsersService. Cuando se necesite, agregar un helper en core que
-      // resuelva ids → nombres y reusarlo desde acá.
-      const ultimaAgente = [...list.items].reverse().find((i) => i.type === 'agente');
+      // Para el empleado, "respuesta del agente" incluye tanto la respuesta
+      // de un agente humano (`type='agente'`) como la auto-respuesta de la IA
+      // (`type='ia'`). El nombre se distingue para que el user sepa quién le
+      // respondió, sin acoplar la tool a UsersService.
+      const ultimaAgente = [...list.items]
+        .reverse()
+        .find((i) => i.type === 'agente' || i.type === 'ia');
       const ultimaRespuestaAgente: UltimaRespuestaAgente | null = ultimaAgente
         ? {
             contenido: ultimaAgente.content,
-            agenteNombre: 'Agente',
+            agenteNombre: ultimaAgente.type === 'ia' ? 'Asistente IA' : 'Agente',
             enviadaEn: ultimaAgente.createdAt,
           }
         : null;
