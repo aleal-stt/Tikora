@@ -22,13 +22,13 @@ export function buildAgregarMensajeATicketHandler(
 ) {
   return async (args: AgregarMensajeATicketArgs): Promise<CallToolResult> => {
     try {
-      const ticket = await tickets.getByIdForCaller(user, args.ticketId);
+      const ticket = await tickets.getByRefForCaller(user, args.ticketId);
       if (ESTADOS_CERRADOS.has(ticket.estado)) {
         return toolError(
           `No se puede agregar mensajes al ticket ${ticket.shortCode}: está ${ticket.estado}.`,
         );
       }
-      await interactions.createForCaller(user, args.ticketId, {
+      await interactions.createForCaller(user, ticket.id, {
         type: 'usuario',
         content: args.texto,
       });
@@ -58,8 +58,10 @@ export function registerAgregarMensajeATicketTool(
       title: 'Agregar un mensaje a un ticket existente',
       description:
         'Adjunta un mensaje del usuario al timeline del ticket indicado. ' +
-        'Falla si el ticket no pertenece al usuario o si está cerrado/cancelado. ' +
-        'No reabre el ticket ni re-clasifica: si se necesita revivirlo, el ' +
+        'Acepta como `ticketId` tanto el ObjectId largo como el código corto ' +
+        'tipo "TIK-12" que aparece en `listar_mis_tickets`. Falla si el ' +
+        'ticket no pertenece al usuario o si está cerrado/cancelado. No ' +
+        'reabre el ticket ni re-clasifica: si se necesita revivirlo, el ' +
         'agente debe hacerlo desde la UI.',
       inputSchema: agregarMensajeATicketInputSchema.shape,
       outputSchema: agregarMensajeATicketOutputSchema.shape,

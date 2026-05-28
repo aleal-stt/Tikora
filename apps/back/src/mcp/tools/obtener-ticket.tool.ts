@@ -25,8 +25,8 @@ export function buildObtenerTicketHandler(
 ) {
   return async (args: ObtenerTicketArgs): Promise<CallToolResult> => {
     try {
-      const ticket = await tickets.getByIdForCaller(user, args.ticketId);
-      const list = await interactions.listForTicket(user, args.ticketId, {
+      const ticket = await tickets.getByRefForCaller(user, args.ticketId);
+      const list = await interactions.listForTicket(user, ticket.id, {
         limit: HISTORY_LIMIT,
       });
 
@@ -100,7 +100,9 @@ export function registerObtenerTicketTool(
       description:
         'Devuelve el detalle completo de un ticket del usuario: datos, ' +
         'última respuesta del agente (si la hay) e historial reciente de ' +
-        'interacciones. Falla si el ticket no existe o no pertenece al usuario.',
+        'interacciones. Acepta como `ticketId` tanto el ObjectId largo como ' +
+        'el código corto tipo "TIK-12" que aparece en `listar_mis_tickets`. ' +
+        'Falla si el ticket no existe o no pertenece al usuario.',
       inputSchema: obtenerTicketInputSchema.shape,
       outputSchema: obtenerTicketOutputSchema.shape,
     },

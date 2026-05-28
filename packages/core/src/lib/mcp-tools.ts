@@ -15,6 +15,16 @@ const trimmedRange = (label: string, min: number, max: number) =>
 const objectIdField = (label: string) =>
   z.string().regex(/^[0-9a-fA-F]{24}$/, `${label} debe ser un ObjectId válido`);
 
+// Acepta ObjectId hex o shortCode tipo TIK-12. El handler MCP resuelve
+// cualquiera de las dos formas — Claude tiende a pasar el shortCode porque
+// es el id que ve en `listar_mis_tickets` y en el lenguaje natural del user.
+const ticketRefField = z
+  .string()
+  .regex(
+    /^([0-9a-fA-F]{24}|TIK-\d+)$/,
+    'ticketId debe ser un ObjectId o un código corto tipo TIK-12',
+  );
+
 // -------- crear_ticket --------
 
 export const crearTicketInputSchema = z.object({
@@ -57,7 +67,7 @@ export type ListarMisTicketsOutput = z.infer<typeof listarMisTicketsOutputSchema
 // -------- obtener_ticket --------
 
 export const obtenerTicketInputSchema = z.object({
-  ticketId: objectIdField('ticketId'),
+  ticketId: ticketRefField,
 });
 export type ObtenerTicketInput = z.infer<typeof obtenerTicketInputSchema>;
 
@@ -97,7 +107,7 @@ export type ObtenerTicketOutput = z.infer<typeof obtenerTicketOutputSchema>;
 // -------- agregar_mensaje_a_ticket --------
 
 export const agregarMensajeATicketInputSchema = z.object({
-  ticketId: objectIdField('ticketId'),
+  ticketId: ticketRefField,
   texto: trimmedRange('El texto', 1, 2000),
 });
 export type AgregarMensajeATicketInput = z.infer<typeof agregarMensajeATicketInputSchema>;

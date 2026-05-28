@@ -258,6 +258,14 @@ export class TicketsService {
     return this.toTicketResponse(ticket);
   }
 
+  // Acepta ObjectId hex o shortCode "TIK-N+". Pensado para clientes externos
+  // (MCP) donde el id natural que el user ve es el shortCode.
+  async getByRefForCaller(caller: AuthenticatedUser, ref: string): Promise<TicketResponse> {
+    const ticket = await this.findOrFailByRef(caller.tenantId, ref);
+    this.assertCanRead(caller, ticket);
+    return this.toTicketResponse(ticket);
+  }
+
   // -------- transiciones --------
 
   /** Toma un ticket. Solo desde `escalado`. Atómico para evitar races. */
@@ -754,6 +762,23 @@ export class TicketsService {
       throw new ApiException(HttpStatus.NOT_FOUND, 'TICKET_NOT_FOUND', 'No se encontró el ticket.');
     }
     return doc;
+  }
+
+  private async findOrFailByRef(tenantId: string, ref: string): Promise<TicketDocument> {
+    if (/^TIK-\d+$/.test(ref)) {
+      const doc = await this.ticketModel
+        .findOne({ tenantId: new Types.ObjectId(tenantId), shortCode: ref })
+        .exec();
+      if (!doc) {
+        throw new ApiException(
+          HttpStatus.NOT_FOUND,
+          'TICKET_NOT_FOUND',
+          'No se encontró el ticket.',
+        );
+      }
+      return doc;
+    }
+    return this.findOrFail(tenantId, ref);
   }
 
   private assertCanRead(caller: AuthenticatedUser, ticket: TicketDocument): void {
