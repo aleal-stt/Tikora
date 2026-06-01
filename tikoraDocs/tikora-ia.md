@@ -980,6 +980,40 @@ Los costos relevantes son:
 - Truncado del cuerpo del ticket si excede un máximo (default `MAX_TICKET_BODY_TOKENS = 4000`). Tickets más largos se truncan con nota.
 - Chunks de KB con tamaño calibrado para no exceder context.
 
+### 13.6 Procedencia de los datos en `/admin/ai-metrics`
+
+Lo que muestra la UI de métricas combina **dos fuentes con distinto grado de fidelidad**. Conviene tenerlo explícito para no inducir a error a quien interprete los números.
+
+#### Tokens — datos reales del proveedor
+
+Los contadores de tokens (`tokensInput`, `tokensInputCached`, `tokensOutput`) no se estiman: salen del campo `usage` del response del LLM en `AiClientService.generate` (`apps/back/src/ai-client/services/ai-client.service.ts`). El SDK OpenAI-compat los mapea a `prompt_tokens`, `prompt_tokens_details.cached_tokens` y `completion_tokens`. Se persisten por llamada en `ai_call_logs`, `classifications` y `ai_responses`, y la agregación que sirve el endpoint es directa sobre esos valores.
+
+Caso límite documentado en el código: cuando la llamada falla con excepción capturada en el catch del auto-response (`auto-response-generator.service.ts`), los tokens quedan en `0` porque el `AiClient` no los expone en el error. No infla ni desinfla el total porque la llamada efectivamente no produjo output.
+
+#### Costo USD — estimación a precio de tier pago
+
+La columna "costo estimado" se calcula con una **tabla de precios local** en `apps/back/src/metrics/ai-pricing.ts`. La fórmula es trivial: `(input × inputUsdPer1M + cached × cachedInputUsdPer1M + output × outputUsdPer1M) / 1_000_000`. La tabla refleja los precios públicos del tier pago de cada provider al momento de la última actualización del archivo.
+
+Esto implica dos cosas que la UI ya comunica explícitamente (badge "estimado", descripción de la sección):
+
+1. **No representa facturación real.** En tier pago, los descuentos por compromiso, créditos negociados o promociones no aparecen. En free tier (setup actual), el costo facturado es `0` mientras no se agote la cuota — el número mostrado es lo que costaría si se pagara.
+2. **La tabla puede quedar desactualizada** si el provider cambia precios y nadie sincroniza `PRICING`. Se mitiga: si un modelo en uso no está en la tabla, la UI muestra `pricingKnown=false` con badge "sin pricing" en lugar de inventar un costo.
+
+#### Plan para migrar a costo real
+
+Cuando se justifique pasar a datos de facturación real, las opciones por provider son:
+
+| Provider                                                   | Fuente real                                                                   | Latencia           | Setup necesario                                                                                                                                                    |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Gemini vía AI Studio (`generativelanguage.googleapis.com`) | No expone uso programáticamente. Solo dashboard web en `aistudio.google.com`. | —                  | Inviable hasta que Google publique una API estable.                                                                                                                |
+| Gemini vía Vertex AI                                       | Google Cloud Billing API + export a BigQuery                                  | 24–48 h            | Migrar la API key a un proyecto GCP con billing habilitado; configurar export diario de billing; tabla agregadora en back.                                         |
+| Anthropic Claude                                           | Admin Usage & Cost API (`/v1/organizations/usage_report/messages`)            | Cercano a realtime | Generar API key de admin distinta a la de mensajes; cliente nuevo en `ai-client/` que la consulte.                                                                 |
+| Cualquiera (genérico)                                      | Tabla `PRICING` editable desde admin UI                                       | Realtime           | Persistir la tabla en Mongo (`ai_pricing` collection), endpoint PATCH admin, formulario en el front. Sigue siendo estimación pero deja de estar quemada en código. |
+
+**Recomendación cuando llegue el momento.** La opción más útil a corto plazo no es ninguna integración de billing — es la **tabla editable desde admin**: deja de ser código, el admin la sincroniza con el preciario público sin redeploy, y mantiene la separación "tokens reales × precio configurable" que ya tiene el endpoint. Las integraciones de billing real (BigQuery, Anthropic Admin) tienen sentido recién cuando el gasto justifique el esfuerzo de operarlas y se quiera distinguir "lo facturado de verdad" de "lo proyectado a tier pago".
+
+**Lo que no hay que cambiar.** El cálculo de tokens y la persistencia por llamada — son la fuente de verdad y deben seguir siendo el único input numérico para cualquier vista de costo. Lo que cambia entre opciones es **de dónde sale el multiplicador USD/token**, no qué tokens contamos.
+
 ---
 
 ## 14. Evaluación y Mejora Continua
