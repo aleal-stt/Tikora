@@ -358,6 +358,7 @@ Se enumeran para que el siguiente plan los recoja, no para implementarlos ahora:
 - **Reclasificación o reapertura desde la tool.** Si el ticket está cerrado, el empleado tiene que abrir uno nuevo o pedirle al agente que lo reabra desde la UI.
 - **Multi-tenant connector único.** Cada empleado configura su propia key. No hay un connector "Tikora" compartido por toda la empresa.
 - **Rate limiting por key.** No se implementa en v1; el cap natural lo da Claude (que llama tools secuencialmente) y los timeouts del back.
+- **Canal WhatsApp Business directo** (sin requerir que el empleado tenga Claude). Plan completo diferido en `tikora-whatsapp.md`: n8n como gateway, back como orquestador, reuso de los mismos handlers de tools sin duplicación.
 
 ---
 
@@ -368,8 +369,8 @@ Se enumeran para que el siguiente plan los recoja, no para implementarlos ahora:
 | Que el contrato MCP de Anthropic cambie y rompa el server                              | SDK pineado en `1.29.0` (exact). Cuando se quiera actualizar, revisar release notes y volver a correr smoke curl + claude.ai.                                                                                                                                                                         |
 | Que el connector de claude.ai exija un IdP OAuth y rechace API key plain               | **Resuelto el 2026-05-27** con la Fase 5 (OAuthModule). claude.ai ahora descubre el IdP en `OAUTH_ISSUER_URL`, se registra por DCR y obtiene access tokens vía Authorization Code + PKCE. Smoke curl end-to-end validado; **falta** el smoke real contra el connector de claude.ai sobre túnel ngrok. |
 | Que Claude no invoque las tools de forma consistente (decida no llamar `crear_ticket`) | Las `description` están escritas en español apuntando a casos concretos. Solo se valida con el smoke real desde WhatsApp; si hay problemas iterar las descriptions.                                                                                                                                   |
-| Adopción real: que los empleados no quieran usar Claude para crear tickets             | Muestrear con 2-3 empleados después del piloto interno; si la adopción es baja, no escalar y volver a evaluar Business API.                                                                                                                                                                           |
-| Posibilidad futura de querer push real del agente                                      | Migrar a opción Business API (Twilio o Meta Cloud) cuando haya presupuesto. El MCP server queda como canal alternativo o se retira.                                                                                                                                                                   |
+| Adopción real: que los empleados no quieran usar Claude para crear tickets             | Muestrear con 2-3 empleados después del piloto interno; si la adopción es baja, no escalar y avanzar al canal WhatsApp Business (`tikora-whatsapp.md`) que tiene menor fricción de adopción.                                                                                                          |
+| Posibilidad futura de querer push real del agente                                      | Sumar el canal WhatsApp Business via n8n cuando se libere presupuesto — plan completo en `tikora-whatsapp.md`. El MCP server queda como canal alternativo para usuarios power; ambos reusan los mismos handlers de tools sin duplicación.                                                             |
 
 ---
 
